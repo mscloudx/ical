@@ -1,0 +1,134 @@
+run:
+  # Количество воркеров (по умолчанию равно количеству логических CPU)
+  concurrency: 4
+  # Таймаут на проверку, для больших проектов лучше ставить побольше (5m)
+  timeout: 5m
+  # Проверять также код тестов
+  tests: true
+
+output:
+  # Формат вывода: с подсветкой и номерами строк
+  formats:
+    - format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+
+linters-settings:
+  errcheck:
+    # Проверка того, что возвращаемая ошибка не игнорируется через _
+    check-blank: true
+    # Проверка type assertions (x.(T)) без проверки успешности (x, ok := x.(T))
+    check-type-assertions: true
+
+  govet:
+    enable-all: true
+    disable:
+      # Зачастую fieldalignment требует неестественного порядка полей (оптимизация памяти), 
+      # что может ухудшать читаемость
+      - fieldalignment
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+      - opinionated
+    disabled-checks:
+      - whyNoLint
+
+  nolintlint:
+    # Требовать пояснений при использовании //nolint
+    require-explanation: true
+    # Требовать указания конкретного линтера (//nolint:errcheck, а не просто //nolint)
+    require-specific: true
+
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+        arguments:
+          - "disableStutteringCheck"
+      - name: unexported-return
+        severity: warning
+
+  testifylint:
+    # Строгая проверка best practices для testify/suite (согласно вашим AI-инструкциям)
+    enable-all: true
+
+  gosec:
+    # Конфигурация сканера безопасности
+    excludes:
+      - G114 # Использование net/http ServeMux
+
+linters:
+  disable-all: true
+  enable:
+    # --- Базовые линтеры (обязательные) ---
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+
+    # --- Строгий стиль и корректность ---
+    - asasalint      # Проверка slice'ов в any
+    - asciicheck     # Выявление не-ASCII символов в идентификаторах
+    - bidichk        # Защита от опасных Unicode-символов
+    - bodyclose      # Проверка закрытия http.Response.Body
+    - copyloopvar    # Замена устаревшего exportloopref (Go 1.22+)
+    - dogsled        # Защита от избыточных игнорирований (_ , _ , _ = ...)
+    - durationcheck  # Проверка умножения time.Duration
+    - errname        # Стандартные названия ошибок (ErrFoo, fooError)
+    - errorlint      # Использование errors.Is/As вместо == (критично для вашего проекта)
+    - exhaustive     # Проверка полноты switch по enum
+    - gci            # Детерминированная сортировка импортов
+    - gocognit       # Когнитивная сложность
+    - goconst        # Поиск повторяющихся строк для выноса в константы
+    - gocritic       # Множество микро-проверок
+    - gocyclo        # Цикломатическая сложность
+    - gofumpt        # Более строгий gofmt
+    - mnd            # Магические числа (замена устаревшего gomnd)
+    - nakedret       # Предупреждение о голых return
+    - nestif         # Глубокая вложенность if (по умолчанию 5)
+    - nilerr         # Ошибка при возврате nil при условии err != nil
+    - nilnil         # Поиск функций, возвращающих (nil, nil)
+    - nolintlint     # Контроль за директивами nolint
+    - predeclared    # Использование зарезервированных имён (string, make и т.д.)
+    - revive         # Быстрая замена golint
+    - stylecheck     # Замена golint (фокус на стиль)
+    - testifylint    # Поддержка стандартов testify (для ваших тестов Suite + AAA)
+    - thelper        # Требование t.Helper() в функциях помощниках тестов
+    - tparallel      # Корректное использование t.Parallel()
+    - unconvert      # Удаление лишних конвертаций типов
+    - whitespace     # Проверка лишних пробелов
+
+issues:
+  # Не скрывать повторяющиеся ошибки (выводить все)
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-rules:
+    # Исключения для тестов: в тестах мы можем позволять больше вольностей
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gocyclo
+        - gocognit
+        - gosec
+        - mnd
+        - funlen
+        - nilnil
+
+    # Исключение для автосгенерированного кода
+    - path: parser/.*_gen\.go
+      linters:
+        - gocyclo
+        - gocognit
+        - mnd
+
+    # Может возникать при осознанных шорткатах
+    - linters:
+        - gocognit
+      text: "cognitive complexity .* of func .* is high"

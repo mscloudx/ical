@@ -1,0 +1,13 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CloudCoder//iCal Parser//RU
+BEGIN:VEVENT
+UID:floating-time-001@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231025T090000
+DTEND:20231025T100000
+SUMMARY:Плавающее время (Floating Time)
+DESCRIPTION:Событие без `Z` и без `TZID`. Значит, оно происходит в 09:00 по локальному времени пользователя, где бы он ни находился. Опасный крайний случай.
+LOCATION:Везде
+END:VEVENT
+END:VCALENDAR

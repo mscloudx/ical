@@ -1,0 +1,14 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CloudCoder//iCal Parser//RU
+BEGIN:VEVENT
+UID:multiple-rrules-001@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231025T090000Z
+DTEND:20231025T100000Z
+SUMMARY:Несколько RRULE (ошибка стандарта)
+DESCRIPTION:RFC 5545 разрешает только один RRULE на компонент. Однако\, некоторые системы исторически генерировали несколько RRULE (что было в RFC 2445 для некоторых случаев). Парсер должен решить\, игнорировать ли второй RRULE или выдавать ошибку.
+RRULE:FREQ=WEEKLY;BYDAY=MO
+RRULE:FREQ=MONTHLY;BYMONTHDAY=15
+END:VEVENT
+END:VCALENDAR

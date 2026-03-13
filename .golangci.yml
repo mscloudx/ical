@@ -1,0 +1,119 @@
+version: "2"
+run:
+  concurrency: 4
+  tests: true
+output:
+  formats:
+    text:
+      path: stdout
+      print-linter-name: true
+      print-issued-lines: true
+linters:
+  default: none
+  enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - copyloopvar
+    - dogsled
+    - durationcheck
+    - errcheck
+    - errname
+    - errorlint
+    - exhaustive
+    - gocognit
+    - goconst
+    - gocritic
+    - gocyclo
+    - govet
+    - ineffassign
+    - mnd
+    - nakedret
+    - nestif
+    - nilerr
+    - nilnil
+    - nolintlint
+    - predeclared
+    - revive
+    - staticcheck
+    - testifylint
+    - thelper
+    - tparallel
+    - unconvert
+    - unused
+    - whitespace
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    gocritic:
+      disabled-checks:
+        - whyNoLint
+      enabled-tags:
+        - diagnostic
+        - performance
+        - style
+        - opinionated
+    gosec:
+      excludes:
+        - G114
+    govet:
+      disable:
+        - fieldalignment
+      enable-all: true
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - disableStutteringCheck
+          severity: warning
+        - name: unexported-return
+          severity: warning
+    testifylint:
+      enable-all: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+          - funlen
+          - gocognit
+          - gocyclo
+          - gosec
+          - mnd
+          - nilnil
+        path: _test\.go
+      - linters:
+          - gocognit
+          - gocyclo
+          - mnd
+        path: parser/.*_gen\.go
+      - linters:
+          - gocognit
+        text: cognitive complexity .* of func .* is high
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gci
+    - gofumpt
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

@@ -1,0 +1,13 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CloudCoder//iCal Parser//RU
+BEGIN:VEVENT
+UID:mixed-lf-crlf-001@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231025T090000Z
+DTEND:20231025T100000Z
+SUMMARY:Mixed Line Endings
+DESCRIPTION:В этом файле могут быть как \n так и \r\n (хотя git может это испортить при коммите).
+ Парсер должен быть устойчив к этому.
+END:VEVENT
+END:VCALENDAR

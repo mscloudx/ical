@@ -1,0 +1,18 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CloudCoder//iCal Parser//RU
+BEGIN:VEVENT
+UID:missing-end-001@example.com
+DTSTAMP:20231024T120000Z
+DTSTART;VALUE=DATE:20231025
+SUMMARY:Событие без конца (Дата)
+DESCRIPTION:Событие с DTSTART типа DATE без DTEND и DURATION. Считается однодневным событием.
+END:VEVENT
+BEGIN:VEVENT
+UID:missing-end-002@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231026T090000Z
+SUMMARY:Событие без конца (Время)
+DESCRIPTION:Событие с DTSTART типа DATE-TIME без DTEND и DURATION. Считается событием без длительности (точечное во времени).
+END:VEVENT
+END:VCALENDAR

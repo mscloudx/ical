@@ -1,0 +1,13 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CloudCoder//iCal Parser//RU
+BEGIN:VEVENT
+UID:escaped-chars-001@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231025T090000Z
+DTEND:20231025T100000Z
+SUMMARY:Встреча\; Важное\, Очень важное
+DESCRIPTION:В этом описании есть перенос строки.\nИ еще один перенос.\nА также экранированная запятая \, и точка с запятой \;\nИ обратный слеш \\.
+LOCATION:Переговорная "Альфа"\, Этаж 3
+END:VEVENT
+END:VCALENDAR

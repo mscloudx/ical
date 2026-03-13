@@ -1,0 +1,13 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CloudCoder//iCal Parser//RU
+BEGIN:VEVENT
+UID:rrule-bysetpos-001@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231026T090000Z
+DTEND:20231026T100000Z
+RRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1
+SUMMARY:Последний рабочий день месяца
+DESCRIPTION:Выбираются все будние дни (`BYDAY=MO,TU,WE,TH,FR`), и из них забирается только самый последний (`BYSETPOS=-1`) в каждом месяце. Это один из сложнейших кейсов iCalendar.
+END:VEVENT
+END:VCALENDAR

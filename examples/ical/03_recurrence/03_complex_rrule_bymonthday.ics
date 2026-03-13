@@ -1,0 +1,13 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CloudCoder//iCal Parser//RU
+BEGIN:VEVENT
+UID:rrule-bymonthday-001@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231031T090000Z
+DTEND:20231031T100000Z
+RRULE:FREQ=MONTHLY;BYMONTHDAY=-1
+SUMMARY:Последний день каждого месяца
+DESCRIPTION:Это событие происходит в самый последний день каждого месяца (31 января, 28/29 февраля, 31 марта...). Обрабатывается парсерами через отрицательные индексы `BYMONTHDAY`.
+END:VEVENT
+END:VCALENDAR

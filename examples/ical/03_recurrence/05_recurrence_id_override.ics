@@ -1,0 +1,22 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CloudCoder//iCal Parser//RU
+BEGIN:VEVENT
+UID:recur-override-001@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231025T090000Z
+DTEND:20231025T100000Z
+RRULE:FREQ=DAILY;COUNT=5
+SUMMARY:Ежедневная планерка (Основа)
+DESCRIPTION:Оригинальная серия из 5 встреч.
+END:VEVENT
+BEGIN:VEVENT
+UID:recur-override-001@example.com
+RECURRENCE-ID:20231027T090000Z
+DTSTAMP:20231026T080000Z
+DTSTART:20231027T100000Z
+DTEND:20231027T110000Z
+SUMMARY:Ежедневная планерка (Перенос времени)
+DESCRIPTION:Исключение для 27 октября. Время начала перенесено на 10:00 (оригинал был в 09:00). Обратите внимание: UID тот же самый, а RECURRENCE-ID указывает на оригинальную дату экземпляра (09:00). SEQUENCE должен быть инкрементирован при реальном обновлении, но здесь для простоты опущен.
+END:VEVENT
+END:VCALENDAR

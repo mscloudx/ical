@@ -1,0 +1,16 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CloudCoder//iCal Parser//RU
+BEGIN:VEVENT
+UID:folded-line-001@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231025T090000Z
+DTEND:20231025T100000Z
+SUMMARY:Длинное описание со сворачиванием
+DESCRIPTION:Это очень длинное описание события, которое не 
+ помещается в 75 байт, поэтому оно было свернуто согласно RFC 5
+ 545. Парсер должен уметь правильно развернуть эти стро
+ ки (unfolding), удалив CRLF и начальный пробел на следующей строке.
+LOCATION:Офис
+END:VEVENT
+END:VCALENDAR

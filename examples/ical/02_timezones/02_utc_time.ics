@@ -1,0 +1,13 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//CloudCoder//iCal Parser//RU
+BEGIN:VEVENT
+UID:utc-time-001@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231025T090000Z
+DTEND:20231025T100000Z
+SUMMARY:Время по UTC
+DESCRIPTION:Событие с суффиксом `Z`. Гарантированно парсится как время по Гринвичу.
+LOCATION:Лондон (может быть)
+END:VEVENT
+END:VCALENDAR
