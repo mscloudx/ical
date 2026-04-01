@@ -49,4 +49,14 @@ var (
 
 	// ErrScanFailed возвращается при ошибке чтения iCalendar-потока.
 	ErrScanFailed = errors.New("iCalendar stream read failed")
+
+	// ErrUnclosedComponent возвращается, если в конце потока остались незакрытые BEGIN.
+	ErrUnclosedComponent = errors.New("unclosed component: missing END")
+
+	// ErrNilReader возвращается при передаче nil в Parse или ParseWithClose.
+	ErrNilReader = errors.New("nil reader")
+
+	// ErrMissingUID возвращается, если VEVENT не содержит обязательного свойства UID.
+	// RFC 5545 §3.6.1: UID является обязательным свойством компонента VEVENT.
+	ErrMissingUID = errors.New("VEVENT missing required UID property")
 )

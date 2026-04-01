@@ -47,7 +47,11 @@ func parseDateTime(s string, loc *time.Location) (time.Time, bool, error) {
 		if err != nil {
 			return time.Time{}, false, err
 		}
-		return time.Date(y, time.Month(m), d, 0, 0, 0, 0, loc), true, nil
+		t := time.Date(y, time.Month(m), d, 0, 0, 0, 0, loc)
+		if t.Year() != y || int(t.Month()) != m || t.Day() != d {
+			return time.Time{}, false, errors.Wrapf(ErrInvalidDate, "day out of range for month: %q", s)
+		}
+		return t, true, nil
 
 	case dtLocalLen: // DATE-TIME local: 20231024T120000
 		if s[8] != 'T' {
@@ -61,7 +65,11 @@ func parseDateTime(s string, loc *time.Location) (time.Time, bool, error) {
 		if err != nil {
 			return time.Time{}, false, err
 		}
-		return time.Date(y, time.Month(m), d, h, mi, sec, 0, loc), false, nil
+		t := time.Date(y, time.Month(m), d, h, mi, sec, 0, loc)
+		if t.Year() != y || int(t.Month()) != m || t.Day() != d {
+			return time.Time{}, false, errors.Wrapf(ErrInvalidDate, "day out of range for month: %q", s)
+		}
+		return t, false, nil
 
 	case dtUTCLen: // DATE-TIME UTC: 20231024T120000Z
 		if s[8] != 'T' || s[15] != 'Z' {
@@ -75,7 +83,11 @@ func parseDateTime(s string, loc *time.Location) (time.Time, bool, error) {
 		if err != nil {
 			return time.Time{}, false, err
 		}
-		return time.Date(y, time.Month(m), d, h, mi, sec, 0, time.UTC), false, nil
+		t := time.Date(y, time.Month(m), d, h, mi, sec, 0, time.UTC)
+		if t.Year() != y || int(t.Month()) != m || t.Day() != d {
+			return time.Time{}, false, errors.Wrapf(ErrInvalidDate, "day out of range for month: %q", s)
+		}
+		return t, false, nil
 
 	default:
 		return time.Time{}, false, errors.Wrapf(ErrInvalidDateTime, "unknown format (%d chars): %q", len(s), s)
@@ -126,6 +138,49 @@ func digit4(a, b, c, d byte) int {
 		return -1
 	}
 	return int(a-'0')*1000 + int(b-'0')*100 + int(c-'0')*10 + int(d-'0')
+}
+
+// --------------------------------------------------------------------------
+// Парсинг UTC-смещения (TZOFFSETFROM / TZOFFSETTO)
+// --------------------------------------------------------------------------
+
+// parseUTCOffset парсит UTC-смещение в формате RFC 5545: [+-]HHMM или [+-]HHMMSS.
+// Возвращает смещение в секундах.
+func parseUTCOffset(s string) (int, error) {
+	if s == "" {
+		return 0, errors.Wrap(ErrInvalidValue, "empty UTC offset")
+	}
+
+	sign := 1
+	switch s[0] {
+	case '+':
+		s = s[1:]
+	case '-':
+		sign = -1
+		s = s[1:]
+	}
+
+	const utcOffsetWithSecs = 6 // len("[+-]HHMMSS") без знака
+	if len(s) != 4 && len(s) != utcOffsetWithSecs {
+		return 0, errors.Wrapf(ErrInvalidValue, "UTC offset %q: expected [+-]HHMM or [+-]HHMMSS", s)
+	}
+
+	hh := digit2(s[0], s[1])
+	mm := digit2(s[2], s[3])
+	ss := 0
+	if len(s) == utcOffsetWithSecs {
+		ss = digit2(s[4], s[5])
+	}
+
+	if hh < 0 || hh > 23 || mm < 0 || mm > 59 || ss < 0 || ss > 59 {
+		return 0, errors.Wrapf(ErrInvalidValue, "UTC offset out of range: %q", s)
+	}
+
+	const (
+		secsPerMinute = 60
+		secsPerHour   = 3600
+	)
+	return sign * (hh*secsPerHour + mm*secsPerMinute + ss), nil
 }
 
 // --------------------------------------------------------------------------
@@ -765,4 +820,18 @@ func parsePeriod(s string, loc *time.Location) (model.Period, error) {
 		return model.Period{}, errors.Wrap(err, "PERIOD end")
 	}
 	return model.Period{Start: start, End: end}, nil
+}
+
+// parsePeriodList парсит список периодов через запятую (RDATE;VALUE=PERIOD).
+func parsePeriodList(s string, loc *time.Location) ([]model.Period, error) {
+	parts := strings.Split(s, ",")
+	result := make([]model.Period, 0, len(parts))
+	for _, part := range parts {
+		p, err := parsePeriod(strings.TrimSpace(part), loc)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, p)
+	}
+	return result, nil
 }

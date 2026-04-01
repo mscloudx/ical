@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -880,6 +881,152 @@ func (s *ParserSuite) TestMixedTimeKinds() {
 	s.Require().Len(cal.Events, 3)
 }
 
+func (s *ParserSuite) TestCustomVTimezoneResolution() {
+	// Arrange & Act
+	cal := s.parseFile("02_timezones/06_custom_vtimezone.ics")
+
+	// Assert
+	s.Require().Len(cal.Timezones, 1)
+	s.Equal("Custom/MyTimezone", cal.Timezones[0].TZID)
+
+	s.Require().Len(cal.Events, 1)
+	e := cal.Events[0]
+	s.Equal("Custom/MyTimezone", e.DTStart.Location().String())
+	s.Equal(9, e.DTStart.Hour())
+
+	// +0500 = 5*3600 = 18000 seconds
+	_, offset := e.DTStart.Zone()
+	s.Equal(18000, offset)
+}
+
+func (s *ParserSuite) TestVTimezoneAfterVEvent() {
+	// Arrange & Act
+	cal := s.parseFile("02_timezones/07_vtimezone_after_vevent.ics")
+
+	// Assert
+	s.Require().Len(cal.Timezones, 1)
+	s.Require().Len(cal.Events, 1)
+
+	e := cal.Events[0]
+	s.Equal("Custom/Reverse", e.DTStart.Location().String())
+	s.Equal(14, e.DTStart.Hour())
+
+	// +0300 = 3*3600 = 10800 seconds
+	_, offset := e.DTStart.Zone()
+	s.Equal(10800, offset)
+}
+
+// TestDaylightTransitionFallback проверяет, что при наличии обоих STANDARD и DAYLIGHT
+// правил в VTIMEZONE выбирается правильное смещение в зависимости от даты события (P2).
+func (s *ParserSuite) TestDaylightTransitionFallback() {
+	// Arrange & Act
+	cal := s.parseFile("02_timezones/08_daylight_transition.ics")
+
+	// Assert
+	s.Require().Len(cal.Events, 2)
+
+	// June 24 — попадает в DAYLIGHT (+0500 = 18000 сек).
+	summer := cal.Events[0]
+	s.Equal("dst-summer-001@example.com", summer.UID)
+	_, summerOffset := summer.DTStart.Zone()
+	s.Equal(5*3600, summerOffset, "summer event must use DAYLIGHT +0500")
+
+	// December 15 — попадает в STANDARD (+0300 = 10800 сек).
+	winter := cal.Events[1]
+	s.Equal("dst-winter-001@example.com", winter.UID)
+	_, winterOffset := winter.DTStart.Zone()
+	s.Equal(3*3600, winterOffset, "winter event must use STANDARD +0300")
+}
+
+// TestConcurrentCustomTZID проверяет, что параллельный парсинг двух календарей
+// с одинаковым кастомным TZID, но разными смещениями не приводит к гонке (P1).
+func (s *ParserSuite) TestConcurrentCustomTZID() {
+	// Arrange: два календаря с одинаковым TZID "Custom/Race", но разными TZOFFSETTO.
+	cal1ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n" +
+		"BEGIN:VTIMEZONE\r\nTZID:Custom/Race\r\n" +
+		"BEGIN:STANDARD\r\nDTSTART:20140101T000000\r\nTZOFFSETFROM:+0000\r\nTZOFFSETTO:+0300\r\n" +
+		"END:STANDARD\r\nEND:VTIMEZONE\r\n" +
+		"BEGIN:VEVENT\r\nUID:race-1@example.com\r\nDTSTAMP:20230101T000000Z\r\n" +
+		"DTSTART;TZID=Custom/Race:20230601T120000\r\nSUMMARY:Cal1\r\nEND:VEVENT\r\n" +
+		"END:VCALENDAR\r\n"
+
+	cal2ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n" +
+		"BEGIN:VTIMEZONE\r\nTZID:Custom/Race\r\n" +
+		"BEGIN:STANDARD\r\nDTSTART:20140101T000000\r\nTZOFFSETFROM:+0000\r\nTZOFFSETTO:+0700\r\n" +
+		"END:STANDARD\r\nEND:VTIMEZONE\r\n" +
+		"BEGIN:VEVENT\r\nUID:race-2@example.com\r\nDTSTAMP:20230101T000000Z\r\n" +
+		"DTSTART;TZID=Custom/Race:20230601T120000\r\nSUMMARY:Cal2\r\nEND:VEVENT\r\n" +
+		"END:VCALENDAR\r\n"
+
+	const goroutines = 50
+	type result struct {
+		uid    string
+		offset int
+		err    error
+	}
+	results := make([]result, goroutines)
+	var wg sync.WaitGroup
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			var ics string
+			var wantOffset int
+			if idx%2 == 0 {
+				ics = cal1ics
+				wantOffset = 3 * 3600
+			} else {
+				ics = cal2ics
+				wantOffset = 7 * 3600
+			}
+			cal, err := parser.ParseBytes([]byte(ics))
+			if err != nil || len(cal.Events) == 0 {
+				results[idx] = result{err: err}
+				return
+			}
+			_, offset := cal.Events[0].DTStart.Zone()
+			results[idx] = result{
+				uid:    cal.Events[0].UID,
+				offset: offset,
+			}
+			_ = wantOffset // checked below
+		}(i)
+	}
+	wg.Wait()
+
+	// Проверяем: каждый результат должен иметь корректное смещение для своего календаря.
+	bad := 0
+	for i, r := range results {
+		s.Require().NoError(r.err, "goroutine %d returned error", i)
+		var wantOffset int
+		if i%2 == 0 {
+			wantOffset = 3 * 3600
+		} else {
+			wantOffset = 7 * 3600
+		}
+		if r.offset != wantOffset {
+			bad++
+		}
+	}
+	s.Zero(bad, "expected 0 incorrect offsets from concurrent parse, got %d", bad)
+}
+
+// TestMissingUID проверяет, что VEVENT без UID возвращает ErrMissingUID (P3).
+func (s *ParserSuite) TestMissingUID() {
+	// Arrange
+	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n" +
+		"BEGIN:VEVENT\r\nDTSTAMP:20230101T000000Z\r\n" +
+		"DTSTART:20230601T120000Z\r\nSUMMARY:No UID\r\nEND:VEVENT\r\n" +
+		"END:VCALENDAR\r\n"
+
+	// Act
+	_, err := parser.ParseBytes([]byte(ics))
+
+	// Assert
+	s.ErrorIs(err, parser.ErrMissingUID)
+}
+
 func (s *ParserSuite) TestComplexRRuleByMonthDay() {
 	cal := s.parseFile("03_recurrence/03_complex_rrule_bymonthday.ics")
 	s.Require().Len(cal.Events, 1)
@@ -1229,4 +1376,107 @@ func (s *ParserSuite) TestBenchComplexITIPScheduling() {
 	// Проверяем REQUEST-STATUS первого события.
 	s.Require().Len(cal.Events[0].RequestStatus, 2)
 	s.Equal("2.0", cal.Events[0].RequestStatus[0].Code)
+}
+
+func (s *ParserSuite) TestBenchComplexManyAttendees() {
+	cal := s.parseFile("12_bench_complex/12_many_attendees.ics")
+	s.Require().Len(cal.Events, 1)
+	s.Require().Len(cal.Events[0].Attendees, 240)
+}
+
+func (s *ParserSuite) TestBenchComplexManyEvents() {
+	cal := s.parseFile("12_bench_complex/13_many_events.ics")
+	s.Require().Len(cal.Events, 180)
+}
+
+func (s *ParserSuite) TestBenchComplexManyVTimezonesCustomReady() {
+	cal := s.parseFile("12_bench_complex/14_many_vtimezones_custom_ready.ics")
+	s.Require().Len(cal.Timezones, 34)
+	s.Require().Len(cal.Events, 34)
+}
+
+// --------------------------------------------------------------------------
+// Regression: дефекты, выявленные внутренним ревью
+// --------------------------------------------------------------------------
+
+// TestScannerUnfoldingNoFinalNewline проверяет, что continuation-строка
+// без завершающего \n не теряет хвост (P1: потеря данных при unfolding).
+func (s *ParserSuite) TestScannerUnfoldingNoFinalNewline() {
+	// Arrange — файл заканчивается folded-строкой без финального \n.
+	// DESCRIPTION должна стать "HelloWorld" после unfolding.
+	data := []byte("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//X//EN\r\n" +
+		"BEGIN:VEVENT\r\nUID:unfold-eof@test\r\nDTSTAMP:20240101T000000Z\r\n" +
+		"DESCRIPTION:Hello\r\n World\r\n" +
+		"END:VEVENT\r\nEND:VCALENDAR")
+
+	// Act
+	cal, err := parser.ParseBytes(data)
+
+	// Assert
+	s.Require().NoError(err)
+	s.Require().Len(cal.Events, 1)
+	s.Equal("HelloWorld", cal.Events[0].Description)
+}
+
+// TestUnclosedVCalendarReturnsError проверяет, что файл без END:VCALENDAR
+// возвращает ошибку, а не парсится молча (P1: незакрытый компонент).
+func (s *ParserSuite) TestUnclosedVCalendarReturnsError() {
+	// Arrange
+	data := []byte("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//X//EN\r\n")
+
+	// Act
+	_, err := parser.ParseBytes(data)
+
+	// Assert
+	s.ErrorIs(err, parser.ErrUnclosedComponent)
+}
+
+// TestInvalidDateReturnsError проверяет, что невалидная дата (день за пределами
+// месяца) возвращает ошибку вместо тихой нормализации (P2: date normalization).
+func (s *ParserSuite) TestInvalidDateReturnsError() {
+	// Arrange — 20240231 не существует (в феврале 2024 только 29 дней).
+	data := []byte("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//X//EN\r\n" +
+		"BEGIN:VEVENT\r\nUID:bad-date@test\r\nDTSTAMP:20240101T000000Z\r\n" +
+		"DTSTART:20240231T010000Z\r\n" +
+		"END:VEVENT\r\nEND:VCALENDAR\r\n")
+
+	// Act
+	_, err := parser.ParseBytes(data)
+
+	// Assert
+	s.Error(err)
+}
+
+// TestRDateValuePeriod проверяет разбор RDATE;VALUE=PERIOD в VEVENT (P2: RDATE periods).
+func (s *ParserSuite) TestRDateValuePeriod() {
+	// Arrange & Act
+	cal := s.parseFile("03_recurrence/08_rdate_value_period.ics")
+
+	// Assert
+	s.Require().Len(cal.Events, 1)
+	e := cal.Events[0]
+	s.Empty(e.RDates, "RDates must be empty when VALUE=PERIOD")
+	s.Require().Len(e.RDatePeriods, 2)
+
+	// Первый период: start/duration.
+	p1 := e.RDatePeriods[0]
+	s.Equal(time.Date(2024, 2, 1, 9, 0, 0, 0, time.UTC), p1.Start)
+	s.Equal(time.Hour, p1.Duration)
+
+	// Второй период: start/end.
+	p2 := e.RDatePeriods[1]
+	s.Equal(time.Date(2024, 3, 1, 9, 0, 0, 0, time.UTC), p2.Start)
+	s.Equal(time.Date(2024, 3, 1, 10, 0, 0, 0, time.UTC), p2.End)
+}
+
+// TestParseNilReaderReturnsError проверяет, что Parse(nil) возвращает ошибку (P3).
+func (s *ParserSuite) TestParseNilReaderReturnsError() {
+	_, err := parser.Parse(nil)
+	s.ErrorIs(err, parser.ErrNilReader)
+}
+
+// TestParseWithCloseNilReturnsError проверяет, что ParseWithClose(nil) не паникует (P3).
+func (s *ParserSuite) TestParseWithCloseNilReturnsError() {
+	_, err := parser.ParseWithClose(nil)
+	s.ErrorIs(err, parser.ErrNilReader)
 }

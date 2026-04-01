@@ -84,6 +84,48 @@ func (s *EncoderSuite) TestEncode_LongLineFolding() {
 	s.Equal(longDesc, parsed.Events[0].Description)
 }
 
+// TestRoundTrip_RDatePeriods проверяет, что RDATE;VALUE=PERIOD не теряется
+// при encode→parse round-trip (P2 fix).
+func (s *EncoderSuite) TestRoundTrip_RDatePeriods() {
+	// Arrange
+	start := time.Date(2023, 6, 1, 10, 0, 0, 0, time.UTC)
+	end := time.Date(2023, 6, 1, 12, 0, 0, 0, time.UTC)
+	dur := 90 * time.Minute
+
+	cal := &model.Calendar{
+		Version: "2.0",
+		ProdID:  "-//Test//EN",
+		Events: []model.Event{
+			{
+				UID:     "rdate-period-001@test",
+				DTStamp: time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
+				DTStart: start,
+				RDatePeriods: []model.Period{
+					{Start: start, End: end},                    // start/end
+					{Start: start.Add(24 * time.Hour), Duration: dur}, // start/duration
+				},
+			},
+		},
+	}
+
+	// Act: encode → parse
+	data, err := encoder.Marshal(cal)
+	s.Require().NoError(err)
+	s.Contains(string(data), "RDATE;VALUE=PERIOD:")
+
+	parsed, err := parser.ParseBytes(data)
+	s.Require().NoError(err)
+	s.Require().Len(parsed.Events, 1)
+
+	// Assert: оба периода сохранились
+	periods := parsed.Events[0].RDatePeriods
+	s.Require().Len(periods, 2, "both periods must survive round-trip")
+	s.True(periods[0].Start.Equal(start))
+	s.True(periods[0].End.Equal(end))
+	s.True(periods[1].Start.Equal(start.Add(24 * time.Hour)))
+	s.Equal(dur, periods[1].Duration)
+}
+
 func (s *EncoderSuite) TestEncode_EventWithAllFields() {
 	// Arrange
 	dtStart := time.Date(2023, 10, 24, 12, 0, 0, 0, time.UTC)
@@ -246,6 +288,34 @@ func (s *EncoderSuite) TestRoundTrip_RFC9074Alarms() {
 
 func (s *EncoderSuite) TestRoundTrip_RFC7529RScale() {
 	s.assertRoundTrip("05_extensions/07_rfc7529_rscale.ics")
+}
+
+func (s *EncoderSuite) TestRoundTrip_RDateValuePeriod() {
+	// Arrange
+	path := filepath.Join(s.examplesDir, "03_recurrence", "08_rdate_value_period.ics")
+	data, err := os.ReadFile(path)
+	s.Require().NoError(err)
+
+	original, err := parser.ParseBytes(data)
+	s.Require().NoError(err)
+	s.Require().Len(original.Events, 1)
+	s.Require().Len(original.Events[0].RDatePeriods, 2)
+
+	// Act
+	encoded, err := encoder.MarshalString(original)
+	s.Require().NoError(err)
+	roundTripped, err := parser.ParseBytes([]byte(encoded))
+	s.Require().NoError(err)
+
+	// Assert
+	s.Require().Len(roundTripped.Events, 1)
+	e := roundTripped.Events[0]
+	s.Empty(e.RDates)
+	s.Require().Len(e.RDatePeriods, 2)
+	s.Equal(original.Events[0].RDatePeriods[0].Start, e.RDatePeriods[0].Start)
+	s.Equal(original.Events[0].RDatePeriods[0].Duration, e.RDatePeriods[0].Duration)
+	s.Equal(original.Events[0].RDatePeriods[1].Start, e.RDatePeriods[1].Start)
+	s.Equal(original.Events[0].RDatePeriods[1].End, e.RDatePeriods[1].End)
 }
 
 func (s *EncoderSuite) TestEncode_ParticipantPropertyOrder() {
@@ -517,4 +587,16 @@ func (s *EncoderSuite) TestRoundTrip_EscapedCharactersFile() {
 	s.Equal(e1.Summary, e2.Summary)
 	s.Equal(e1.Description, e2.Description)
 	s.Equal(e1.Location, e2.Location)
+}
+
+// TestEncode_NilWriter проверяет, что Encode(nil, cal) возвращает ошибку (P3).
+func (s *EncoderSuite) TestEncode_NilWriter() {
+	// Arrange
+	cal := &model.Calendar{Version: "2.0", ProdID: "-//X//EN"}
+
+	// Act
+	err := encoder.Encode(nil, cal)
+
+	// Assert
+	s.ErrorIs(err, encoder.ErrNilWriter)
 }

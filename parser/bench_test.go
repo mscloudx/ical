@@ -357,6 +357,18 @@ func BenchmarkParse_ITIPScheduling(b *testing.B) {
 	runParseBench(b, filepath.Join("12_bench_complex", "11_itip_scheduling.ics"))
 }
 
+func BenchmarkParse_ComplexManyAttendees(b *testing.B) {
+	runParseBench(b, filepath.Join("12_bench_complex", "12_many_attendees.ics"))
+}
+
+func BenchmarkParse_ComplexManyEvents(b *testing.B) {
+	runParseBench(b, filepath.Join("12_bench_complex", "13_many_events.ics"))
+}
+
+func BenchmarkParse_ComplexManyVTimezonesCustomReady(b *testing.B) {
+	runParseBench(b, filepath.Join("12_bench_complex", "14_many_vtimezones_custom_ready.ics"))
+}
+
 // BenchmarkParse_RFC5546Request — iTIP REQUEST с SCHEDULE-AGENT.
 func BenchmarkParse_RFC5546Request(b *testing.B) {
 	runParseBench(b, filepath.Join("05_extensions", "12_rfc5546_itip_request.ics"))

@@ -80,9 +80,12 @@ type Event struct {
 	// RRules — правила повторения (RRULE).
 	// RFC 5545 §3.8.5.3.
 	RRules []RecurrenceRule
-	// RDates — дополнительные даты повторения (RDATE).
+	// RDates — дополнительные даты повторения (RDATE) с типом DATE или DATE-TIME.
 	// RFC 5545 §3.8.5.2.
 	RDates []time.Time
+	// RDatePeriods — дополнительные периоды повторения (RDATE;VALUE=PERIOD).
+	// RFC 5545 §3.8.5.2.
+	RDatePeriods []Period
 	// ExDates — даты-исключения из повторений (EXDATE).
 	// RFC 5545 §3.8.5.1.
 	ExDates []time.Time

@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +43,7 @@ const (
 	propRELATEDTO     = "RELATED-TO"
 	propRequestStatus = "REQUEST-STATUS"
 	propATTACH        = "ATTACH"
+	propTZOFFSETTO    = "TZOFFSETTO"
 )
 
 // --------------------------------------------------------------------------
@@ -50,6 +52,9 @@ const (
 
 // Parse парсит iCalendar-данные из io.Reader и возвращает Calendar.
 func Parse(r io.Reader) (*model.Calendar, error) {
+	if r == nil {
+		return nil, ErrNilReader
+	}
 	scanner := newLineScanner(r)
 	raw, err := scanComponentTree(scanner)
 	if err != nil {
@@ -69,6 +74,9 @@ func ParseBytes(data []byte) (*model.Calendar, error) {
 // ParseWithClose парсит iCalendar-данные из io.ReadCloser
 // и гарантирует вызов Close() после завершения чтения.
 func ParseWithClose(rc io.ReadCloser) (*model.Calendar, error) {
+	if rc == nil {
+		return nil, ErrNilReader
+	}
 	defer rc.Close()
 	return Parse(rc)
 }
@@ -118,6 +126,10 @@ func scanComponentTree(scanner *lineScanner) (*rawComponent, error) {
 		default:
 			current.props = append(current.props, prop)
 		}
+	}
+
+	if len(stack) > 1 {
+		return nil, errors.Wrapf(ErrUnclosedComponent, "%s", stack[len(stack)-1].name)
 	}
 
 	return root, nil
@@ -196,23 +208,34 @@ func buildCalendar(root *rawComponent) (*model.Calendar, error) {
 		}
 	}
 
+	// Pre-pass: регистрируем часовые пояса из VTIMEZONE в per-parse контексте.
+	// Это позволяет resolveTZIDCtx использовать их при построении событий и
+	// гарантирует корректность при параллельном парсинге разных календарей
+	// с одинаковым TZID, но разными правилами переходов.
+	tzCtx := newTZContext()
+	for _, child := range vcal.children {
+		if child.name == "VTIMEZONE" {
+			registerVTimezoneLocation(child, tzCtx)
+		}
+	}
+
 	// Обрабатываем дочерние компоненты.
 	for _, child := range vcal.children {
 		switch child.name {
 		case "VEVENT":
-			event, err := buildEvent(child)
+			event, err := buildEvent(child, tzCtx)
 			if err != nil {
 				return nil, errors.Wrap(err, "VEVENT")
 			}
 			cal.Events = append(cal.Events, event)
 		case "VTODO":
-			todo, err := buildTodo(child)
+			todo, err := buildTodo(child, tzCtx)
 			if err != nil {
 				return nil, errors.Wrap(err, "VTODO")
 			}
 			cal.Todos = append(cal.Todos, todo)
 		case "VJOURNAL":
-			journal, err := buildJournal(child)
+			journal, err := buildJournal(child, tzCtx)
 			if err != nil {
 				return nil, errors.Wrap(err, "VJOURNAL")
 			}
@@ -224,13 +247,13 @@ func buildCalendar(root *rawComponent) (*model.Calendar, error) {
 			}
 			cal.Timezones = append(cal.Timezones, tz)
 		case "VAVAILABILITY":
-			av, err := buildAvailability(child)
+			av, err := buildAvailability(child, tzCtx)
 			if err != nil {
 				return nil, errors.Wrap(err, "VAVAILABILITY")
 			}
 			cal.Availabilities = append(cal.Availabilities, av)
 		case "VFREEBUSY":
-			fb, err := buildFreeBusy(child)
+			fb, err := buildFreeBusy(child, tzCtx)
 			if err != nil {
 				return nil, errors.Wrap(err, "VFREEBUSY")
 			}
@@ -242,11 +265,11 @@ func buildCalendar(root *rawComponent) (*model.Calendar, error) {
 }
 
 // buildEvent строит Event из rawComponent.
-func buildEvent(raw *rawComponent) (model.Event, error) {
+func buildEvent(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Event, error) {
 	var e model.Event
 
 	for _, p := range raw.props {
-		if err := setEventProp(&e, p); err != nil {
+		if err := setEventProp(&e, p, tzCtx); err != nil {
 			return e, err
 		}
 	}
@@ -254,7 +277,7 @@ func buildEvent(raw *rawComponent) (model.Event, error) {
 	for _, child := range raw.children {
 		switch child.name {
 		case componentAlarm:
-			alarm, err := buildAlarm(child)
+			alarm, err := buildAlarm(child, tzCtx)
 			if err != nil {
 				return e, errors.Wrap(err, componentAlarm)
 			}
@@ -280,14 +303,18 @@ func buildEvent(raw *rawComponent) (model.Event, error) {
 		}
 	}
 
+	if e.UID == "" {
+		return e, ErrMissingUID
+	}
+
 	return e, nil
 }
 
 // setEventProp устанавливает значение одного свойства в Event.
 //
 //nolint:gocyclo // switch по свойствам iCalendar неизбежно содержит много case-ов.
-func setEventProp(e *model.Event, p model.Property) error {
-	loc := resolveTZID(p)
+func setEventProp(e *model.Event, p model.Property, tzCtx *perCalendarTZContext) error {
+	loc := resolveTZIDCtx(p, tzCtx)
 
 	switch strings.ToUpper(p.Name) {
 	case propUID:
@@ -367,11 +394,19 @@ func setEventProp(e *model.Event, p model.Property) error {
 		}
 		e.RRules = append(e.RRules, rule)
 	case propRDATE:
-		dates, err := parseDateTimeList(p.Value, loc)
-		if err != nil {
-			return errors.Wrap(err, propRDATE)
+		if strings.EqualFold(p.ParamValue("VALUE"), "PERIOD") {
+			periods, err := parsePeriodList(p.Value, loc)
+			if err != nil {
+				return errors.Wrap(err, propRDATE)
+			}
+			e.RDatePeriods = append(e.RDatePeriods, periods...)
+		} else {
+			dates, err := parseDateTimeList(p.Value, loc)
+			if err != nil {
+				return errors.Wrap(err, propRDATE)
+			}
+			e.RDates = append(e.RDates, dates...)
 		}
-		e.RDates = append(e.RDates, dates...)
 	case propEXDATE:
 		dates, err := parseDateTimeList(p.Value, loc)
 		if err != nil {
@@ -408,6 +443,159 @@ func setEventProp(e *model.Event, p model.Property) error {
 	}
 
 	return nil
+}
+
+// registerVTimezoneLocation разбирает VTIMEZONE и сохраняет информацию
+// о переходах в per-parse tzCtx.
+//
+// Для TZID, известных системной базе IANA, используется time.LoadLocation
+// (результат кэшируется глобально). Для кастомных TZID парсятся правила
+// STANDARD/DAYLIGHT и кэшируются по content-fingerprint, что позволяет:
+//   - корректно выбирать смещение по дате события (DAYLIGHT vs STANDARD),
+//   - не путать разные правила при параллельном парсинге (P1),
+//   - переиспользовать разобранные правила без повторного разбора (эффективность).
+func registerVTimezoneLocation(raw *rawComponent, tzCtx *perCalendarTZContext) {
+	var tzid string
+	for _, p := range raw.props {
+		if strings.EqualFold(p.Name, "TZID") {
+			tzid = p.Value
+			break
+		}
+	}
+	if tzid == "" {
+		return
+	}
+
+	// Duplicate VTIMEZONE block in the same calendar (Thunderbird / Outlook pattern):
+	// already registered this iteration — skip fingerprint computation entirely.
+	if _, ok := tzCtx.iana[tzid]; ok {
+		return
+	}
+	if _, ok := tzCtx.custom[tzid]; ok {
+		return
+	}
+
+	// IANA-известный TZID — используем системную базу (глобально кэшируется).
+	if loc, err := loadIANA(tzid); err == nil {
+		tzCtx.iana[tzid] = loc
+		return
+	}
+
+	// Кастомный TZID — ищем в content-addressed глобальном кэше.
+	fp := vtimezoneFingerprint(tzid, raw)
+	if vtz, ok := customTZCache.load(fp); ok {
+		tzCtx.custom[tzid] = vtz
+		return
+	}
+
+	// Разбираем переходы и сохраняем в кэш.
+	vtz := parseVTimezoneTransitions(tzid, raw)
+	vtz = customTZCache.loadOrStore(fp, vtz)
+	tzCtx.custom[tzid] = vtz
+}
+
+// vtimezoneFingerprint строит детерминированный ключ для content-addressed кэша.
+// Включает TZID и все свойства дочерних компонентов STANDARD/DAYLIGHT.
+func vtimezoneFingerprint(tzid string, raw *rawComponent) string {
+	var sb strings.Builder
+	sb.WriteString(tzid)
+	for _, child := range raw.children {
+		sb.WriteByte('|')
+		sb.WriteString(child.name)
+		for _, p := range child.props {
+			sb.WriteByte(';')
+			sb.WriteString(strings.ToUpper(p.Name))
+			sb.WriteByte('=')
+			sb.WriteString(p.Value)
+		}
+	}
+	return sb.String()
+}
+
+// parseVTimezoneTransitions извлекает переходы STANDARD/DAYLIGHT из VTIMEZONE.
+// Результат сортируется по DTSTART для корректного поиска в locationAt.
+//
+// После построения transitions функция предвычисляет:
+//   - offsetLocs: map[offset]*time.Location со всеми уникальными FixedZone,
+//     чтобы locationAt не вызывал time.FixedZone на каждый datetime-вызов.
+//   - fixedLoc: ненулевой, когда зона имеет ровно один non-yearly переход
+//     (постоянный offset), что позволяет locationAt вернуться без alloc вообще.
+func parseVTimezoneTransitions(tzid string, raw *rawComponent) *vtimezoneTransitions {
+	vtz := &vtimezoneTransitions{tzid: tzid}
+	for _, child := range raw.children {
+		if child.name != "STANDARD" && child.name != "DAYLIGHT" {
+			continue
+		}
+		var tr tzTransition
+		for _, p := range child.props {
+			switch strings.ToUpper(p.Name) {
+			case propDTSTART:
+				// DTSTART в VTIMEZONE — локальное wall-clock время.
+				// Парсим как UTC для сравнения (смещение не важно здесь).
+				t, _, err := parseDateTime(p.Value, nil)
+				if err == nil {
+					tr.dtstart = t
+				}
+			case propTZOFFSETTO:
+				secs, err := parseUTCOffset(p.Value)
+				if err == nil {
+					tr.offsetTo = secs
+				}
+			case propRRULE:
+				if strings.Contains(strings.ToUpper(p.Value), "FREQ=YEARLY") {
+					tr.yearly = true
+				}
+			}
+		}
+		vtz.transitions = append(vtz.transitions, tr)
+	}
+	sort.Slice(vtz.transitions, func(i, j int) bool {
+		return vtz.transitions[i].dtstart.Before(vtz.transitions[j].dtstart)
+	})
+
+	// Pre-build one *time.Location per unique UTC offset.
+	// vtimezoneTransitions is immutable after construction (stored in the global
+	// content-addressed cache), so this map is safe to read concurrently.
+	vtz.offsetLocs = make(map[int]*time.Location, len(vtz.transitions))
+	for _, tr := range vtz.transitions {
+		if _, ok := vtz.offsetLocs[tr.offsetTo]; !ok {
+			vtz.offsetLocs[tr.offsetTo] = time.FixedZone(tzid, tr.offsetTo)
+		}
+	}
+
+	// Fast path: single non-recurring transition → offset never changes.
+	if len(vtz.transitions) == 1 && !vtz.transitions[0].yearly {
+		vtz.fixedLoc = vtz.offsetLocs[vtz.transitions[0].offsetTo]
+	}
+
+	return vtz
+}
+
+// wallClockApprox парсит строку даты/времени как наивный UTC-момент.
+// Используется для выбора нужного перехода в vtimezoneTransitions.locationAt.
+func wallClockApprox(s string) time.Time {
+	switch len(s) {
+	case dateLen:
+		y, m, d, err := parseDateDigits(s)
+		if err != nil {
+			return time.Time{}
+		}
+		return time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC)
+	case dtLocalLen, dtUTCLen:
+		if s[8] != 'T' {
+			return time.Time{}
+		}
+		y, m, d, err := parseDateDigits(s[:8])
+		if err != nil {
+			return time.Time{}
+		}
+		h, mi, sec, err := parseTimeDigits(s[9:15])
+		if err != nil {
+			return time.Time{}
+		}
+		return time.Date(y, time.Month(m), d, h, mi, sec, 0, time.UTC)
+	}
+	return time.Time{}
 }
 
 // buildTimezone строит Timezone из rawComponent.
@@ -462,7 +650,7 @@ func buildTzTransition(raw *rawComponent) (model.TzTransition, error) {
 			tr.DTStart = t
 		case "TZOFFSETFROM":
 			tr.OffsetFrom = p.Value
-		case "TZOFFSETTO":
+		case propTZOFFSETTO:
 			tr.OffsetTo = p.Value
 		case "TZNAME":
 			tr.TZName = unescapeText(p.Value)
@@ -492,7 +680,7 @@ func buildTzTransition(raw *rawComponent) (model.TzTransition, error) {
 }
 
 // buildAlarm строит Alarm из rawComponent.
-func buildAlarm(raw *rawComponent) (model.Alarm, error) {
+func buildAlarm(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Alarm, error) {
 	var a model.Alarm
 
 	for _, p := range raw.props {
@@ -520,7 +708,7 @@ func buildAlarm(raw *rawComponent) (model.Alarm, error) {
 			}
 			a.Duration = &d
 		case "ACKNOWLEDGED":
-			loc := resolveTZID(p)
+			loc := resolveTZIDCtx(p, tzCtx)
 			t, _, err := parseDateTime(p.Value, loc)
 			if err != nil {
 				return a, errors.Wrap(err, "ACKNOWLEDGED")
@@ -567,11 +755,11 @@ func buildAlarm(raw *rawComponent) (model.Alarm, error) {
 }
 
 // buildTodo строит Todo из rawComponent.
-func buildTodo(raw *rawComponent) (model.Todo, error) {
+func buildTodo(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Todo, error) {
 	var t model.Todo
 
 	for _, p := range raw.props {
-		if err := setTodoProp(&t, p); err != nil {
+		if err := setTodoProp(&t, p, tzCtx); err != nil {
 			return t, err
 		}
 	}
@@ -579,7 +767,7 @@ func buildTodo(raw *rawComponent) (model.Todo, error) {
 	for _, child := range raw.children {
 		switch child.name {
 		case componentAlarm:
-			alarm, err := buildAlarm(child)
+			alarm, err := buildAlarm(child, tzCtx)
 			if err != nil {
 				return t, errors.Wrap(err, componentAlarm)
 			}
@@ -611,8 +799,8 @@ func buildTodo(raw *rawComponent) (model.Todo, error) {
 // setTodoProp устанавливает значение одного свойства в Todo.
 //
 //nolint:gocyclo // switch по свойствам iCalendar неизбежно содержит много case-ов.
-func setTodoProp(t *model.Todo, p model.Property) error {
-	loc := resolveTZID(p)
+func setTodoProp(t *model.Todo, p model.Property, tzCtx *perCalendarTZContext) error {
+	loc := resolveTZIDCtx(p, tzCtx)
 
 	switch strings.ToUpper(p.Name) {
 	case propUID:
@@ -708,11 +896,19 @@ func setTodoProp(t *model.Todo, p model.Property) error {
 		}
 		t.RRules = append(t.RRules, rule)
 	case propRDATE:
-		dates, err := parseDateTimeList(p.Value, loc)
-		if err != nil {
-			return errors.Wrap(err, propRDATE)
+		if strings.EqualFold(p.ParamValue("VALUE"), "PERIOD") {
+			periods, err := parsePeriodList(p.Value, loc)
+			if err != nil {
+				return errors.Wrap(err, propRDATE)
+			}
+			t.RDatePeriods = append(t.RDatePeriods, periods...)
+		} else {
+			dates, err := parseDateTimeList(p.Value, loc)
+			if err != nil {
+				return errors.Wrap(err, propRDATE)
+			}
+			t.RDates = append(t.RDates, dates...)
 		}
-		t.RDates = append(t.RDates, dates...)
 	case propEXDATE:
 		dates, err := parseDateTimeList(p.Value, loc)
 		if err != nil {
@@ -752,11 +948,11 @@ func setTodoProp(t *model.Todo, p model.Property) error {
 }
 
 // buildJournal строит Journal из rawComponent.
-func buildJournal(raw *rawComponent) (model.Journal, error) {
+func buildJournal(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Journal, error) {
 	var j model.Journal
 
 	for _, p := range raw.props {
-		if err := setJournalProp(&j, p); err != nil {
+		if err := setJournalProp(&j, p, tzCtx); err != nil {
 			return j, err
 		}
 	}
@@ -790,8 +986,8 @@ func buildJournal(raw *rawComponent) (model.Journal, error) {
 // setJournalProp устанавливает значение одного свойства в Journal.
 //
 //nolint:gocyclo // Ветвление следует RFC: упрощение ухудшит читаемость.
-func setJournalProp(j *model.Journal, p model.Property) error {
-	loc := resolveTZID(p)
+func setJournalProp(j *model.Journal, p model.Property, tzCtx *perCalendarTZContext) error {
+	loc := resolveTZIDCtx(p, tzCtx)
 
 	switch strings.ToUpper(p.Name) {
 	case propUID:
@@ -856,11 +1052,19 @@ func setJournalProp(j *model.Journal, p model.Property) error {
 		}
 		j.RRules = append(j.RRules, rule)
 	case propRDATE:
-		dates, err := parseDateTimeList(p.Value, loc)
-		if err != nil {
-			return errors.Wrap(err, propRDATE)
+		if strings.EqualFold(p.ParamValue("VALUE"), "PERIOD") {
+			periods, err := parsePeriodList(p.Value, loc)
+			if err != nil {
+				return errors.Wrap(err, propRDATE)
+			}
+			j.RDatePeriods = append(j.RDatePeriods, periods...)
+		} else {
+			dates, err := parseDateTimeList(p.Value, loc)
+			if err != nil {
+				return errors.Wrap(err, propRDATE)
+			}
+			j.RDates = append(j.RDates, dates...)
 		}
-		j.RDates = append(j.RDates, dates...)
 	case propEXDATE:
 		dates, err := parseDateTimeList(p.Value, loc)
 		if err != nil {
@@ -898,11 +1102,11 @@ func setJournalProp(j *model.Journal, p model.Property) error {
 }
 
 // buildFreeBusy строит FreeBusy из rawComponent.
-func buildFreeBusy(raw *rawComponent) (model.FreeBusy, error) {
+func buildFreeBusy(raw *rawComponent, tzCtx *perCalendarTZContext) (model.FreeBusy, error) {
 	var fb model.FreeBusy
 
 	for _, p := range raw.props {
-		loc := resolveTZID(p)
+		loc := resolveTZIDCtx(p, tzCtx)
 
 		switch strings.ToUpper(p.Name) {
 		case propUID:
@@ -964,11 +1168,11 @@ func buildFreeBusy(raw *rawComponent) (model.FreeBusy, error) {
 }
 
 // buildAvailability строит Availability из rawComponent.
-func buildAvailability(raw *rawComponent) (model.Availability, error) {
+func buildAvailability(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Availability, error) {
 	var a model.Availability
 
 	for _, p := range raw.props {
-		if err := setAvailabilityProp(&a, p); err != nil {
+		if err := setAvailabilityProp(&a, p, tzCtx); err != nil {
 			return a, err
 		}
 	}
@@ -976,13 +1180,13 @@ func buildAvailability(raw *rawComponent) (model.Availability, error) {
 	for _, child := range raw.children {
 		switch child.name {
 		case "AVAILABLE":
-			av, err := buildAvailable(child)
+			av, err := buildAvailable(child, tzCtx)
 			if err != nil {
 				return a, errors.Wrap(err, "AVAILABLE")
 			}
 			a.Available = append(a.Available, av)
 		case componentAlarm:
-			alarm, err := buildAlarm(child)
+			alarm, err := buildAlarm(child, tzCtx)
 			if err != nil {
 				return a, errors.Wrap(err, componentAlarm)
 			}
@@ -994,8 +1198,8 @@ func buildAvailability(raw *rawComponent) (model.Availability, error) {
 }
 
 // setAvailabilityProp устанавливает значение одного свойства в Availability.
-func setAvailabilityProp(a *model.Availability, p model.Property) error {
-	loc := resolveTZID(p)
+func setAvailabilityProp(a *model.Availability, p model.Property, tzCtx *perCalendarTZContext) error {
+	loc := resolveTZIDCtx(p, tzCtx)
 
 	switch strings.ToUpper(p.Name) {
 	case propUID:
@@ -1078,11 +1282,11 @@ func setAvailabilityProp(a *model.Availability, p model.Property) error {
 }
 
 // buildAvailable строит Available из rawComponent.
-func buildAvailable(raw *rawComponent) (model.Available, error) {
+func buildAvailable(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Available, error) {
 	var a model.Available
 
 	for _, p := range raw.props {
-		if err := setAvailableProp(&a, p); err != nil {
+		if err := setAvailableProp(&a, p, tzCtx); err != nil {
 			return a, err
 		}
 	}
@@ -1091,7 +1295,7 @@ func buildAvailable(raw *rawComponent) (model.Available, error) {
 		if child.name != componentAlarm {
 			continue
 		}
-		alarm, err := buildAlarm(child)
+		alarm, err := buildAlarm(child, tzCtx)
 		if err != nil {
 			return a, errors.Wrap(err, componentAlarm)
 		}
@@ -1102,8 +1306,8 @@ func buildAvailable(raw *rawComponent) (model.Available, error) {
 }
 
 // setAvailableProp устанавливает значение одного свойства в Available.
-func setAvailableProp(a *model.Available, p model.Property) error {
-	loc := resolveTZID(p)
+func setAvailableProp(a *model.Available, p model.Property, tzCtx *perCalendarTZContext) error {
+	loc := resolveTZIDCtx(p, tzCtx)
 
 	switch strings.ToUpper(p.Name) {
 	case propUID:
@@ -1200,16 +1404,49 @@ func setAvailableProp(a *model.Available, p model.Property) error {
 // Вспомогательные функции
 // --------------------------------------------------------------------------
 
-// resolveTZID извлекает *time.Location из параметра TZID.
-// Если параметр отсутствует — возвращает nil (будет использован UTC).
-func resolveTZID(p model.Property) *time.Location {
+// --------------------------------------------------------------------------
+// Per-parse timezone context
+// --------------------------------------------------------------------------
+
+// perCalendarTZContext хранит информацию о часовых поясах для одного Parse-вызова.
+// Изолирует кастомные VTIMEZONE от других параллельных Parse-вызовов (P1).
+type perCalendarTZContext struct {
+	// iana: TZID → *time.Location для IANA-известных зон из VTIMEZONE.
+	iana map[string]*time.Location
+	// custom: TZID → *vtimezoneTransitions для кастомных зон.
+	custom map[string]*vtimezoneTransitions
+}
+
+func newTZContext() *perCalendarTZContext {
+	return &perCalendarTZContext{
+		iana:   make(map[string]*time.Location),
+		custom: make(map[string]*vtimezoneTransitions),
+	}
+}
+
+// resolveTZIDCtx извлекает *time.Location из параметра TZID свойства p.
+// Для кастомных VTIMEZONE выбирает смещение по wall-clock времени события,
+// учитывая переходы STANDARD/DAYLIGHT (P2 улучшенный fallback).
+// Если TZID отсутствует или не найден — возвращает nil (будет использован UTC).
+func resolveTZIDCtx(p model.Property, tzCtx *perCalendarTZContext) *time.Location {
 	tzid := p.ParamValue("TZID")
 	if tzid == "" {
 		return nil
 	}
-	loc, err := globalTZCache.load(tzid)
+
+	// 1. Per-parse IANA map (приоритет — calendar-declared VTIMEZONE).
+	if loc, ok := tzCtx.iana[tzid]; ok {
+		return loc
+	}
+
+	// 2. Кастомный VTIMEZONE с transition-aware выбором смещения.
+	if vtz, ok := tzCtx.custom[tzid]; ok {
+		return vtz.locationAt(wallClockApprox(p.Value))
+	}
+
+	// 3. TZID не объявлен в VTIMEZONE — пробуем системную базу напрямую.
+	loc, err := loadIANA(tzid)
 	if err != nil {
-		// Если timezone не найден в системе — используем UTC.
 		return nil
 	}
 	return loc

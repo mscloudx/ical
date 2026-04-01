@@ -27,6 +27,9 @@ const maxLineLen = 75
 
 // Encode записывает Calendar в io.Writer в формате iCalendar (RFC 5545).
 func Encode(w io.Writer, cal *model.Calendar) error {
+	if w == nil {
+		return ErrNilWriter
+	}
 	if cal == nil {
 		return ErrNilCalendar
 	}
@@ -286,6 +289,7 @@ func (w *icsWriter) writeEvent(e *model.Event) {
 		w.writePropStr("RRULE", formatRRule(&e.RRules[i]))
 	}
 	w.writeDateTimeList("RDATE", e.RDates)
+	w.writePeriodList(e.RDatePeriods)
 	w.writeDateTimeList("EXDATE", e.ExDates)
 
 	// Relations.
@@ -397,6 +401,7 @@ func (w *icsWriter) writeTodo(t *model.Todo) {
 		w.writePropStr("RRULE", formatRRule(&t.RRules[i]))
 	}
 	w.writeDateTimeList("RDATE", t.RDates)
+	w.writePeriodList(t.RDatePeriods)
 	w.writeDateTimeList("EXDATE", t.ExDates)
 
 	for _, rel := range t.Related {
@@ -493,6 +498,7 @@ func (w *icsWriter) writeJournal(j *model.Journal) {
 		w.writePropStr("RRULE", formatRRule(&j.RRules[i]))
 	}
 	w.writeDateTimeList("RDATE", j.RDates)
+	w.writePeriodList(j.RDatePeriods)
 	w.writeDateTimeList("EXDATE", j.ExDates)
 
 	for _, rel := range j.Related {
@@ -816,6 +822,14 @@ func (w *icsWriter) writeDateTimeList(name string, dates []time.Time) {
 		parts[i] = formatDateTime(d, false)
 	}
 	w.writePropStr(name, strings.Join(parts, ","))
+}
+
+// writePeriodList записывает список RDATE;VALUE=PERIOD (RFC 5545 §3.8.5.2).
+// Каждый период — отдельная content-line вида "RDATE;VALUE=PERIOD:start/end".
+func (w *icsWriter) writePeriodList(periods []model.Period) {
+	for i := range periods {
+		w.writeLine("RDATE;VALUE=PERIOD:" + formatPeriod(periods[i]))
+	}
 }
 
 // needsQuoting проверяет, нужно ли оборачивать значение параметра в кавычки.

@@ -63,12 +63,14 @@ func (s *lineScanner) Scan() bool {
 			break
 		}
 		cont, err := s.readLine()
-		if err != nil {
-			break
-		}
 		// Пропускаем ведущий пробел/табуляцию.
+		// Данные записываем до проверки ошибки: ReadBytes возвращает
+		// прочитанные байты вместе с io.EOF при отсутствии финального \n.
 		if len(cont) > 0 {
 			s.buf.Write(cont[1:])
+		}
+		if err != nil {
+			break
 		}
 	}
 
