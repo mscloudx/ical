@@ -1,0 +1,24 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Bench//Complex//EN
+BEGIN:VEVENT
+UID:evt-rel-1
+DTSTAMP:20240301T080000Z
+DTSTART:20240410T090000Z
+SUMMARY:Parent Event
+CONCEPT:https://example.com/concept/parent
+REFID:parent-ref-1
+LINK;LINKREL=related;FMTTYPE=text/html:https://example.com/parent
+END:VEVENT
+BEGIN:VEVENT
+UID:evt-rel-2
+DTSTAMP:20240301T080000Z
+DTSTART:20240411T090000Z
+SUMMARY:Child Event
+RELATED-TO;RELTYPE=PARENT:evt-rel-1
+RELATED-TO;RELTYPE=DEPENDS-ON;GAP=PT1H:evt-rel-1
+CONCEPT:https://example.com/concept/child
+REFID:child-ref-1
+LINK;LINKREL=alternate;FMTTYPE=text/html:https://example.com/child
+END:VEVENT
+END:VCALENDAR

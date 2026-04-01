@@ -8,19 +8,40 @@ package parser
 
 import (
 	"bytes"
+	"encoding/base64"
 	"io"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/mscloudx/ical/model"
 	"github.com/pkg/errors"
-	"gitverse.ru/cloudcoder/ical/model"
 )
 
 // Константы для часто используемых имён свойств.
 const (
-	propDTSTART  = "DTSTART"
-	propATTENDEE = "ATTENDEE"
+	propUID           = "UID"
+	propDTSTAMP       = "DTSTAMP"
+	propDTSTART       = "DTSTART"
+	propDTEND         = "DTEND"
+	propDURATION      = "DURATION"
+	propSUMMARY       = "SUMMARY"
+	propDESCRIPTION   = "DESCRIPTION"
+	propURL           = "URL"
+	propSTATUS        = "STATUS"
+	propCLASS         = "CLASS"
+	propORGANIZER     = "ORGANIZER"
+	propATTENDEE      = "ATTENDEE"
+	propCREATED       = "CREATED"
+	propLASTMODIFIED  = "LAST-MODIFIED"
+	propSEQUENCE      = "SEQUENCE"
+	propRECURRENCEID  = "RECURRENCE-ID"
+	propRRULE         = "RRULE"
+	propRDATE         = "RDATE"
+	propEXDATE        = "EXDATE"
+	propRELATEDTO     = "RELATED-TO"
+	propRequestStatus = "REQUEST-STATUS"
+	propATTACH        = "ATTACH"
 )
 
 // --------------------------------------------------------------------------
@@ -107,6 +128,8 @@ func scanComponentTree(scanner *lineScanner) (*rawComponent, error) {
 // --------------------------------------------------------------------------
 
 // buildCalendar строит Calendar из дерева rawComponent.
+//
+//nolint:gocyclo // Ветвление следует RFC: упрощение ухудшит читаемость.
 func buildCalendar(root *rawComponent) (*model.Calendar, error) {
 	// Ожидаем, что корень ROOT содержит один дочерний VCALENDAR.
 	var vcal *rawComponent
@@ -132,7 +155,37 @@ func buildCalendar(root *rawComponent) (*model.Calendar, error) {
 		case "CALSCALE":
 			cal.CalScale = p.Value
 		case "METHOD":
-			cal.Method = p.Value
+			cal.Method = parseMethod(p.Value)
+		case "NAME":
+			cal.Name = unescapeText(p.Value)
+		case "DESCRIPTION":
+			cal.Description = unescapeText(p.Value)
+		case "UID":
+			cal.UID = p.Value
+		case "LAST-MODIFIED":
+			t, _, err := parseDateTime(p.Value, nil)
+			if err != nil {
+				return nil, errors.Wrap(err, "LAST-MODIFIED")
+			}
+			cal.LastModified = &t
+		case "URL":
+			cal.URL = p.Value
+		case "CATEGORIES":
+			cats := strings.Split(p.Value, ",")
+			for i := range cats {
+				cats[i] = strings.TrimSpace(cats[i])
+			}
+			cal.Categories = append(cal.Categories, cats...)
+		case "REFRESH-INTERVAL":
+			d, err := parseDuration(p.Value)
+			if err != nil {
+				return nil, errors.Wrap(err, "REFRESH-INTERVAL")
+			}
+			cal.RefreshInterval = &d
+		case "COLOR":
+			cal.Color = p.Value
+		case "SOURCE":
+			cal.Source = p.Value
 		default:
 			switch {
 			case isXProp(p.Name):
@@ -170,6 +223,12 @@ func buildCalendar(root *rawComponent) (*model.Calendar, error) {
 				return nil, errors.Wrap(err, "VTIMEZONE")
 			}
 			cal.Timezones = append(cal.Timezones, tz)
+		case "VAVAILABILITY":
+			av, err := buildAvailability(child)
+			if err != nil {
+				return nil, errors.Wrap(err, "VAVAILABILITY")
+			}
+			cal.Availabilities = append(cal.Availabilities, av)
 		case "VFREEBUSY":
 			fb, err := buildFreeBusy(child)
 			if err != nil {
@@ -192,14 +251,32 @@ func buildEvent(raw *rawComponent) (model.Event, error) {
 		}
 	}
 
-	// Обрабатываем вложенные VALARM.
 	for _, child := range raw.children {
-		if child.name == "VALARM" {
+		switch child.name {
+		case componentAlarm:
 			alarm, err := buildAlarm(child)
 			if err != nil {
-				return e, errors.Wrap(err, "VALARM")
+				return e, errors.Wrap(err, componentAlarm)
 			}
 			e.Alarms = append(e.Alarms, alarm)
+		case componentParticipant:
+			part, err := buildParticipant(child)
+			if err != nil {
+				return e, errors.Wrap(err, componentParticipant)
+			}
+			e.Participants = append(e.Participants, part)
+		case componentLocation:
+			locComponent, err := buildLocationComponent(child)
+			if err != nil {
+				return e, errors.Wrap(err, "LOCATION component")
+			}
+			e.Locations = append(e.Locations, locComponent)
+		case componentResource:
+			resComponent, err := buildResourceComponent(child)
+			if err != nil {
+				return e, errors.Wrap(err, "RESOURCE component")
+			}
+			e.Resources = append(e.Resources, resComponent)
 		}
 	}
 
@@ -213,12 +290,12 @@ func setEventProp(e *model.Event, p model.Property) error {
 	loc := resolveTZID(p)
 
 	switch strings.ToUpper(p.Name) {
-	case "UID":
+	case propUID:
 		e.UID = p.Value
-	case "DTSTAMP":
+	case propDTSTAMP:
 		t, _, err := parseDateTime(p.Value, nil)
 		if err != nil {
-			return errors.Wrap(err, "DTSTAMP")
+			return errors.Wrap(err, propDTSTAMP)
 		}
 		e.DTStamp = t
 	case propDTSTART:
@@ -228,81 +305,99 @@ func setEventProp(e *model.Event, p model.Property) error {
 		}
 		e.DTStart = t
 		e.AllDay = isDate
-	case "DTEND":
+	case propDTEND:
 		t, _, err := parseDateTime(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "DTEND")
+			return errors.Wrap(err, propDTEND)
 		}
 		e.DTEnd = &t
-	case "DURATION":
+	case propDURATION:
 		d, err := parseDuration(p.Value)
 		if err != nil {
-			return errors.Wrap(err, "DURATION")
+			return errors.Wrap(err, propDURATION)
 		}
 		e.Duration = &d
-	case "SUMMARY":
-		e.Summary = p.Value
-	case "DESCRIPTION":
-		e.Description = p.Value
-	case "LOCATION":
-		e.Location = p.Value
-	case "URL":
+	case propSUMMARY:
+		e.Summary = unescapeText(p.Value)
+	case propDESCRIPTION:
+		e.Description = unescapeText(p.Value)
+	case propLocation:
+		e.Location = unescapeText(p.Value)
+	case propURL:
 		e.URL = p.Value
-	case "STATUS":
+	case propSTATUS:
 		e.Status = parseStatus(p.Value)
 	case "TRANSP":
 		e.Transparency = parseTransparency(p.Value)
-	case "CLASS":
+	case propCLASS:
 		e.Classification = parseClassification(p.Value)
-	case "ORGANIZER":
+	case propORGANIZER:
 		a := parseAttendee(p.Params, p.Value)
 		e.Organizer = &a
 	case propATTENDEE:
 		e.Attendees = append(e.Attendees, parseAttendee(p.Params, p.Value))
-	case "CREATED":
+	case propCREATED:
 		t, _, err := parseDateTime(p.Value, nil)
 		if err != nil {
-			return errors.Wrap(err, "CREATED")
+			return errors.Wrap(err, propCREATED)
 		}
 		e.Created = &t
-	case "LAST-MODIFIED":
+	case propLASTMODIFIED:
 		t, _, err := parseDateTime(p.Value, nil)
 		if err != nil {
-			return errors.Wrap(err, "LAST-MODIFIED")
+			return errors.Wrap(err, propLASTMODIFIED)
 		}
 		e.LastModified = &t
-	case "SEQUENCE":
+	case propSEQUENCE:
 		n, err := strconv.Atoi(p.Value)
 		if err != nil {
 			return errors.Wrapf(ErrInvalidRRule, "SEQUENCE=%s", p.Value)
 		}
 		e.Sequence = n
-	case "RECURRENCE-ID":
+	case propRECURRENCEID:
 		t, _, err := parseDateTime(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "RECURRENCE-ID")
+			return errors.Wrap(err, propRECURRENCEID)
 		}
 		e.RecurrenceID = &t
-	case "RRULE":
+	case propRRULE:
 		rule, err := parseRRule(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "RRULE")
+			return errors.Wrap(err, propRRULE)
 		}
 		e.RRules = append(e.RRules, rule)
-	case "RDATE":
+	case propRDATE:
 		dates, err := parseDateTimeList(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "RDATE")
+			return errors.Wrap(err, propRDATE)
 		}
 		e.RDates = append(e.RDates, dates...)
-	case "EXDATE":
+	case propEXDATE:
 		dates, err := parseDateTimeList(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "EXDATE")
+			return errors.Wrap(err, propEXDATE)
 		}
 		e.ExDates = append(e.ExDates, dates...)
-	case "RELATED-TO":
+	case propRELATEDTO:
 		e.Related = append(e.Related, buildRelation(p))
+	case propStructuredData:
+		e.StructuredData = append(e.StructuredData, parseStructuredData(p))
+	case propStyledDescription:
+		e.StyledDescriptions = append(e.StyledDescriptions, parseStyledDescription(p))
+	case propConcept:
+		e.Concepts = append(e.Concepts, p.Value)
+	case propRefID:
+		e.RefIDs = append(e.RefIDs, p.Value)
+	case propLink:
+		e.Links = append(e.Links, parseLink(p))
+	case propRequestStatus:
+		e.RequestStatus = append(e.RequestStatus, parseRequestStatus(p.Value))
+	case propATTACH:
+		att, err := parseAttachment(p)
+		if err != nil {
+			return errors.Wrap(err, propATTACH)
+		}
+		e.Attach = append(e.Attach, att)
 	default:
 		switch {
 		case isXProp(p.Name):
@@ -370,17 +465,17 @@ func buildTzTransition(raw *rawComponent) (model.TzTransition, error) {
 		case "TZOFFSETTO":
 			tr.OffsetTo = p.Value
 		case "TZNAME":
-			tr.TZName = p.Value
-		case "RRULE":
+			tr.TZName = unescapeText(p.Value)
+		case propRRULE:
 			rule, err := parseRRule(p.Value, nil)
 			if err != nil {
-				return tr, errors.Wrap(err, "RRULE")
+				return tr, errors.Wrap(err, propRRULE)
 			}
 			tr.RRules = append(tr.RRules, rule)
-		case "RDATE":
+		case propRDATE:
 			dates, err := parseDateTimeList(p.Value, nil)
 			if err != nil {
-				return tr, errors.Wrap(err, "RDATE")
+				return tr, errors.Wrap(err, propRDATE)
 			}
 			tr.RDates = append(tr.RDates, dates...)
 		default:
@@ -402,6 +497,8 @@ func buildAlarm(raw *rawComponent) (model.Alarm, error) {
 
 	for _, p := range raw.props {
 		switch strings.ToUpper(p.Name) {
+		case propUID:
+			a.UID = p.Value
 		case "ACTION":
 			a.Action = parseAlarmAction(p.Value)
 		case "TRIGGER":
@@ -410,24 +507,41 @@ func buildAlarm(raw *rawComponent) (model.Alarm, error) {
 				return a, errors.Wrap(err, "TRIGGER")
 			}
 			a.Trigger = t
-		case "DESCRIPTION":
-			a.Description = p.Value
-		case "SUMMARY":
-			a.Summary = p.Value
+		case propDESCRIPTION:
+			a.Description = unescapeText(p.Value)
+		case propSUMMARY:
+			a.Summary = unescapeText(p.Value)
 		case propATTENDEE:
 			a.Attendees = append(a.Attendees, parseAttendee(p.Params, p.Value))
-		case "DURATION":
+		case propDURATION:
 			d, err := parseDuration(p.Value)
 			if err != nil {
-				return a, errors.Wrap(err, "DURATION")
+				return a, errors.Wrap(err, propDURATION)
 			}
 			a.Duration = &d
+		case "ACKNOWLEDGED":
+			loc := resolveTZID(p)
+			t, _, err := parseDateTime(p.Value, loc)
+			if err != nil {
+				return a, errors.Wrap(err, "ACKNOWLEDGED")
+			}
+			a.Acknowledged = &t
+		case "PROXIMITY":
+			a.Proximity = parseProximity(p.Value)
 		case "REPEAT":
 			n, err := strconv.Atoi(p.Value)
 			if err != nil {
 				return a, errors.Wrapf(ErrInvalidRRule, "REPEAT=%s", p.Value)
 			}
 			a.Repeat = n
+		case propRELATEDTO:
+			a.Related = append(a.Related, buildRelation(p))
+		case propATTACH:
+			att, err := parseAttachment(p)
+			if err != nil {
+				return a, errors.Wrap(err, propATTACH)
+			}
+			a.Attach = append(a.Attach, att)
 		default:
 			switch {
 			case isXProp(p.Name):
@@ -436,6 +550,17 @@ func buildAlarm(raw *rawComponent) (model.Alarm, error) {
 				a.IanaProps = append(a.IanaProps, p)
 			}
 		}
+	}
+
+	for _, child := range raw.children {
+		if child.name != componentLocation {
+			continue
+		}
+		loc, err := buildLocationComponent(child)
+		if err != nil {
+			return a, errors.Wrap(err, componentLocation)
+		}
+		a.Locations = append(a.Locations, loc)
 	}
 
 	return a, nil
@@ -451,14 +576,32 @@ func buildTodo(raw *rawComponent) (model.Todo, error) {
 		}
 	}
 
-	// Обрабатываем вложенные VALARM.
 	for _, child := range raw.children {
-		if child.name == "VALARM" {
+		switch child.name {
+		case componentAlarm:
 			alarm, err := buildAlarm(child)
 			if err != nil {
-				return t, errors.Wrap(err, "VALARM")
+				return t, errors.Wrap(err, componentAlarm)
 			}
 			t.Alarms = append(t.Alarms, alarm)
+		case componentParticipant:
+			part, err := buildParticipant(child)
+			if err != nil {
+				return t, errors.Wrap(err, componentParticipant)
+			}
+			t.Participants = append(t.Participants, part)
+		case componentLocation:
+			locComponent, err := buildLocationComponent(child)
+			if err != nil {
+				return t, errors.Wrap(err, "LOCATION component")
+			}
+			t.Locations = append(t.Locations, locComponent)
+		case componentResource:
+			resComponent, err := buildResourceComponent(child)
+			if err != nil {
+				return t, errors.Wrap(err, "RESOURCE component")
+			}
+			t.Resources = append(t.Resources, resComponent)
 		}
 	}
 
@@ -472,12 +615,12 @@ func setTodoProp(t *model.Todo, p model.Property) error {
 	loc := resolveTZID(p)
 
 	switch strings.ToUpper(p.Name) {
-	case "UID":
+	case propUID:
 		t.UID = p.Value
-	case "DTSTAMP":
+	case propDTSTAMP:
 		v, _, err := parseDateTime(p.Value, nil)
 		if err != nil {
-			return errors.Wrap(err, "DTSTAMP")
+			return errors.Wrap(err, propDTSTAMP)
 		}
 		t.DTStamp = v
 	case propDTSTART:
@@ -493,10 +636,10 @@ func setTodoProp(t *model.Todo, p model.Property) error {
 			return errors.Wrap(err, "DUE")
 		}
 		t.Due = &v
-	case "DURATION":
+	case propDURATION:
 		d, err := parseDuration(p.Value)
 		if err != nil {
-			return errors.Wrap(err, "DURATION")
+			return errors.Wrap(err, propDURATION)
 		}
 		t.Duration = &d
 	case "COMPLETED":
@@ -517,67 +660,85 @@ func setTodoProp(t *model.Todo, p model.Property) error {
 			return errors.Wrapf(ErrInvalidValue, "PERCENT-COMPLETE=%s", p.Value)
 		}
 		t.PercentComplete = n
-	case "SUMMARY":
-		t.Summary = p.Value
-	case "DESCRIPTION":
-		t.Description = p.Value
-	case "LOCATION":
-		t.Location = p.Value
-	case "URL":
+	case propSUMMARY:
+		t.Summary = unescapeText(p.Value)
+	case propDESCRIPTION:
+		t.Description = unescapeText(p.Value)
+	case propLocation:
+		t.Location = unescapeText(p.Value)
+	case propURL:
 		t.URL = p.Value
-	case "STATUS":
+	case propSTATUS:
 		t.Status = parseStatus(p.Value)
-	case "CLASS":
+	case propCLASS:
 		t.Classification = parseClassification(p.Value)
-	case "ORGANIZER":
+	case propORGANIZER:
 		a := parseAttendee(p.Params, p.Value)
 		t.Organizer = &a
 	case propATTENDEE:
 		t.Attendees = append(t.Attendees, parseAttendee(p.Params, p.Value))
-	case "CREATED":
+	case propCREATED:
 		v, _, err := parseDateTime(p.Value, nil)
 		if err != nil {
-			return errors.Wrap(err, "CREATED")
+			return errors.Wrap(err, propCREATED)
 		}
 		t.Created = &v
-	case "LAST-MODIFIED":
+	case propLASTMODIFIED:
 		v, _, err := parseDateTime(p.Value, nil)
 		if err != nil {
-			return errors.Wrap(err, "LAST-MODIFIED")
+			return errors.Wrap(err, propLASTMODIFIED)
 		}
 		t.LastModified = &v
-	case "SEQUENCE":
+	case propSEQUENCE:
 		n, err := strconv.Atoi(p.Value)
 		if err != nil {
 			return errors.Wrapf(ErrInvalidRRule, "SEQUENCE=%s", p.Value)
 		}
 		t.Sequence = n
-	case "RECURRENCE-ID":
+	case propRECURRENCEID:
 		v, _, err := parseDateTime(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "RECURRENCE-ID")
+			return errors.Wrap(err, propRECURRENCEID)
 		}
 		t.RecurrenceID = &v
-	case "RRULE":
+	case propRRULE:
 		rule, err := parseRRule(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "RRULE")
+			return errors.Wrap(err, propRRULE)
 		}
 		t.RRules = append(t.RRules, rule)
-	case "RDATE":
+	case propRDATE:
 		dates, err := parseDateTimeList(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "RDATE")
+			return errors.Wrap(err, propRDATE)
 		}
 		t.RDates = append(t.RDates, dates...)
-	case "EXDATE":
+	case propEXDATE:
 		dates, err := parseDateTimeList(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "EXDATE")
+			return errors.Wrap(err, propEXDATE)
 		}
 		t.ExDates = append(t.ExDates, dates...)
-	case "RELATED-TO":
+	case propRELATEDTO:
 		t.Related = append(t.Related, buildRelation(p))
+	case propStructuredData:
+		t.StructuredData = append(t.StructuredData, parseStructuredData(p))
+	case propStyledDescription:
+		t.StyledDescriptions = append(t.StyledDescriptions, parseStyledDescription(p))
+	case propConcept:
+		t.Concepts = append(t.Concepts, p.Value)
+	case propRefID:
+		t.RefIDs = append(t.RefIDs, p.Value)
+	case propLink:
+		t.Links = append(t.Links, parseLink(p))
+	case propRequestStatus:
+		t.RequestStatus = append(t.RequestStatus, parseRequestStatus(p.Value))
+	case propATTACH:
+		att, err := parseAttachment(p)
+		if err != nil {
+			return errors.Wrap(err, propATTACH)
+		}
+		t.Attach = append(t.Attach, att)
 	default:
 		switch {
 		case isXProp(p.Name):
@@ -600,20 +761,45 @@ func buildJournal(raw *rawComponent) (model.Journal, error) {
 		}
 	}
 
+	for _, child := range raw.children {
+		switch child.name {
+		case componentParticipant:
+			part, err := buildParticipant(child)
+			if err != nil {
+				return j, errors.Wrap(err, componentParticipant)
+			}
+			j.Participants = append(j.Participants, part)
+		case componentLocation:
+			locComponent, err := buildLocationComponent(child)
+			if err != nil {
+				return j, errors.Wrap(err, "LOCATION component")
+			}
+			j.Locations = append(j.Locations, locComponent)
+		case componentResource:
+			resComponent, err := buildResourceComponent(child)
+			if err != nil {
+				return j, errors.Wrap(err, "RESOURCE component")
+			}
+			j.Resources = append(j.Resources, resComponent)
+		}
+	}
+
 	return j, nil
 }
 
 // setJournalProp устанавливает значение одного свойства в Journal.
+//
+//nolint:gocyclo // Ветвление следует RFC: упрощение ухудшит читаемость.
 func setJournalProp(j *model.Journal, p model.Property) error {
 	loc := resolveTZID(p)
 
 	switch strings.ToUpper(p.Name) {
-	case "UID":
+	case propUID:
 		j.UID = p.Value
-	case "DTSTAMP":
+	case propDTSTAMP:
 		v, _, err := parseDateTime(p.Value, nil)
 		if err != nil {
-			return errors.Wrap(err, "DTSTAMP")
+			return errors.Wrap(err, propDTSTAMP)
 		}
 		j.DTStamp = v
 	case propDTSTART:
@@ -623,66 +809,82 @@ func setJournalProp(j *model.Journal, p model.Property) error {
 		}
 		j.DTStart = &v
 		j.AllDay = isDate
-	case "SUMMARY":
-		j.Summary = p.Value
-	case "DESCRIPTION":
+	case propSUMMARY:
+		j.Summary = unescapeText(p.Value)
+	case propDESCRIPTION:
 		// VJOURNAL допускает несколько DESCRIPTION (RFC 5545 §3.6.3).
-		j.Descriptions = append(j.Descriptions, p.Value)
-	case "URL":
+		j.Descriptions = append(j.Descriptions, unescapeText(p.Value))
+	case propURL:
 		j.URL = p.Value
-	case "STATUS":
+	case propSTATUS:
 		j.Status = parseStatus(p.Value)
-	case "CLASS":
+	case propCLASS:
 		j.Classification = parseClassification(p.Value)
-	case "ORGANIZER":
+	case propORGANIZER:
 		a := parseAttendee(p.Params, p.Value)
 		j.Organizer = &a
 	case propATTENDEE:
 		j.Attendees = append(j.Attendees, parseAttendee(p.Params, p.Value))
-	case "CREATED":
+	case propCREATED:
 		v, _, err := parseDateTime(p.Value, nil)
 		if err != nil {
-			return errors.Wrap(err, "CREATED")
+			return errors.Wrap(err, propCREATED)
 		}
 		j.Created = &v
-	case "LAST-MODIFIED":
+	case propLASTMODIFIED:
 		v, _, err := parseDateTime(p.Value, nil)
 		if err != nil {
-			return errors.Wrap(err, "LAST-MODIFIED")
+			return errors.Wrap(err, propLASTMODIFIED)
 		}
 		j.LastModified = &v
-	case "SEQUENCE":
+	case propSEQUENCE:
 		n, err := strconv.Atoi(p.Value)
 		if err != nil {
 			return errors.Wrapf(ErrInvalidRRule, "SEQUENCE=%s", p.Value)
 		}
 		j.Sequence = n
-	case "RECURRENCE-ID":
+	case propRECURRENCEID:
 		v, _, err := parseDateTime(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "RECURRENCE-ID")
+			return errors.Wrap(err, propRECURRENCEID)
 		}
 		j.RecurrenceID = &v
-	case "RRULE":
+	case propRRULE:
 		rule, err := parseRRule(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "RRULE")
+			return errors.Wrap(err, propRRULE)
 		}
 		j.RRules = append(j.RRules, rule)
-	case "RDATE":
+	case propRDATE:
 		dates, err := parseDateTimeList(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "RDATE")
+			return errors.Wrap(err, propRDATE)
 		}
 		j.RDates = append(j.RDates, dates...)
-	case "EXDATE":
+	case propEXDATE:
 		dates, err := parseDateTimeList(p.Value, loc)
 		if err != nil {
-			return errors.Wrap(err, "EXDATE")
+			return errors.Wrap(err, propEXDATE)
 		}
 		j.ExDates = append(j.ExDates, dates...)
-	case "RELATED-TO":
+	case propRELATEDTO:
 		j.Related = append(j.Related, buildRelation(p))
+	case propStructuredData:
+		j.StructuredData = append(j.StructuredData, parseStructuredData(p))
+	case propStyledDescription:
+		j.StyledDescriptions = append(j.StyledDescriptions, parseStyledDescription(p))
+	case propConcept:
+		j.Concepts = append(j.Concepts, p.Value)
+	case propRefID:
+		j.RefIDs = append(j.RefIDs, p.Value)
+	case propLink:
+		j.Links = append(j.Links, parseLink(p))
+	case propATTACH:
+		att, err := parseAttachment(p)
+		if err != nil {
+			return errors.Wrap(err, propATTACH)
+		}
+		j.Attach = append(j.Attach, att)
 	default:
 		switch {
 		case isXProp(p.Name):
@@ -703,12 +905,12 @@ func buildFreeBusy(raw *rawComponent) (model.FreeBusy, error) {
 		loc := resolveTZID(p)
 
 		switch strings.ToUpper(p.Name) {
-		case "UID":
+		case propUID:
 			fb.UID = p.Value
-		case "DTSTAMP":
+		case propDTSTAMP:
 			t, _, err := parseDateTime(p.Value, nil)
 			if err != nil {
-				return fb, errors.Wrap(err, "DTSTAMP")
+				return fb, errors.Wrap(err, propDTSTAMP)
 			}
 			fb.DTStamp = t
 		case propDTSTART:
@@ -717,18 +919,18 @@ func buildFreeBusy(raw *rawComponent) (model.FreeBusy, error) {
 				return fb, errors.Wrap(err, "DTSTART")
 			}
 			fb.DTStart = &t
-		case "DTEND":
+		case propDTEND:
 			t, _, err := parseDateTime(p.Value, loc)
 			if err != nil {
-				return fb, errors.Wrap(err, "DTEND")
+				return fb, errors.Wrap(err, propDTEND)
 			}
 			fb.DTEnd = &t
-		case "ORGANIZER":
+		case propORGANIZER:
 			a := parseAttendee(p.Params, p.Value)
 			fb.Organizer = &a
 		case propATTENDEE:
 			fb.Attendees = append(fb.Attendees, parseAttendee(p.Params, p.Value))
-		case "URL":
+		case propURL:
 			fb.URL = p.Value
 		case "FREEBUSY":
 			fbType := model.FBTypeBusy // по умолчанию BUSY
@@ -761,6 +963,239 @@ func buildFreeBusy(raw *rawComponent) (model.FreeBusy, error) {
 	return fb, nil
 }
 
+// buildAvailability строит Availability из rawComponent.
+func buildAvailability(raw *rawComponent) (model.Availability, error) {
+	var a model.Availability
+
+	for _, p := range raw.props {
+		if err := setAvailabilityProp(&a, p); err != nil {
+			return a, err
+		}
+	}
+
+	for _, child := range raw.children {
+		switch child.name {
+		case "AVAILABLE":
+			av, err := buildAvailable(child)
+			if err != nil {
+				return a, errors.Wrap(err, "AVAILABLE")
+			}
+			a.Available = append(a.Available, av)
+		case componentAlarm:
+			alarm, err := buildAlarm(child)
+			if err != nil {
+				return a, errors.Wrap(err, componentAlarm)
+			}
+			a.Alarms = append(a.Alarms, alarm)
+		}
+	}
+
+	return a, nil
+}
+
+// setAvailabilityProp устанавливает значение одного свойства в Availability.
+func setAvailabilityProp(a *model.Availability, p model.Property) error {
+	loc := resolveTZID(p)
+
+	switch strings.ToUpper(p.Name) {
+	case propUID:
+		a.UID = p.Value
+	case propDTSTAMP:
+		t, _, err := parseDateTime(p.Value, nil)
+		if err != nil {
+			return errors.Wrap(err, propDTSTAMP)
+		}
+		a.DTStamp = t
+	case propDTSTART:
+		t, _, err := parseDateTime(p.Value, loc)
+		if err != nil {
+			return errors.Wrap(err, "DTSTART")
+		}
+		a.DTStart = &t
+	case propDTEND:
+		t, _, err := parseDateTime(p.Value, loc)
+		if err != nil {
+			return errors.Wrap(err, propDTEND)
+		}
+		if a.Duration != nil {
+			a.Duration = nil
+		}
+		a.DTEnd = &t
+	case propDURATION:
+		d, err := parseDuration(p.Value)
+		if err != nil {
+			return errors.Wrap(err, propDURATION)
+		}
+		if a.DTEnd != nil {
+			a.DTEnd = nil
+		}
+		a.Duration = &d
+	case "BUSYTYPE":
+		a.BusyType = model.BusyType(strings.ToUpper(p.Value))
+	case propCREATED:
+		t, _, err := parseDateTime(p.Value, nil)
+		if err != nil {
+			return errors.Wrap(err, propCREATED)
+		}
+		a.Created = &t
+	case propLASTMODIFIED:
+		t, _, err := parseDateTime(p.Value, nil)
+		if err != nil {
+			return errors.Wrap(err, propLASTMODIFIED)
+		}
+		a.LastModified = &t
+	case propSEQUENCE:
+		n, err := strconv.Atoi(p.Value)
+		if err != nil {
+			return errors.Wrapf(ErrInvalidValue, "SEQUENCE=%s", p.Value)
+		}
+		a.Sequence = n
+	case propSUMMARY:
+		a.Summary = unescapeText(p.Value)
+	case propDESCRIPTION:
+		a.Description = unescapeText(p.Value)
+	case propURL:
+		a.URL = p.Value
+	case "CATEGORIES":
+		cats := strings.Split(p.Value, ",")
+		for i := range cats {
+			cats[i] = strings.TrimSpace(cats[i])
+		}
+		a.Categories = append(a.Categories, cats...)
+	case propORGANIZER:
+		org := parseAttendee(p.Params, p.Value)
+		a.Organizer = &org
+	default:
+		switch {
+		case isXProp(p.Name):
+			a.XProps = append(a.XProps, p)
+		case isIanaProp(p.Name):
+			a.IanaProps = append(a.IanaProps, p)
+		}
+	}
+
+	return nil
+}
+
+// buildAvailable строит Available из rawComponent.
+func buildAvailable(raw *rawComponent) (model.Available, error) {
+	var a model.Available
+
+	for _, p := range raw.props {
+		if err := setAvailableProp(&a, p); err != nil {
+			return a, err
+		}
+	}
+
+	for _, child := range raw.children {
+		if child.name != componentAlarm {
+			continue
+		}
+		alarm, err := buildAlarm(child)
+		if err != nil {
+			return a, errors.Wrap(err, componentAlarm)
+		}
+		a.Alarms = append(a.Alarms, alarm)
+	}
+
+	return a, nil
+}
+
+// setAvailableProp устанавливает значение одного свойства в Available.
+func setAvailableProp(a *model.Available, p model.Property) error {
+	loc := resolveTZID(p)
+
+	switch strings.ToUpper(p.Name) {
+	case propUID:
+		a.UID = p.Value
+	case propDTSTAMP:
+		t, _, err := parseDateTime(p.Value, nil)
+		if err != nil {
+			return errors.Wrap(err, propDTSTAMP)
+		}
+		a.DTStamp = t
+	case propDTSTART:
+		t, _, err := parseDateTime(p.Value, loc)
+		if err != nil {
+			return errors.Wrap(err, "DTSTART")
+		}
+		a.DTStart = t
+	case propDTEND:
+		t, _, err := parseDateTime(p.Value, loc)
+		if err != nil {
+			return errors.Wrap(err, propDTEND)
+		}
+		if a.Duration != nil {
+			a.Duration = nil
+		}
+		a.DTEnd = &t
+	case propDURATION:
+		d, err := parseDuration(p.Value)
+		if err != nil {
+			return errors.Wrap(err, propDURATION)
+		}
+		if a.DTEnd != nil {
+			a.DTEnd = nil
+		}
+		a.Duration = &d
+	case propSUMMARY:
+		a.Summary = unescapeText(p.Value)
+	case propDESCRIPTION:
+		a.Description = unescapeText(p.Value)
+	case propCREATED:
+		t, _, err := parseDateTime(p.Value, nil)
+		if err != nil {
+			return errors.Wrap(err, propCREATED)
+		}
+		a.Created = &t
+	case propLASTMODIFIED:
+		t, _, err := parseDateTime(p.Value, nil)
+		if err != nil {
+			return errors.Wrap(err, propLASTMODIFIED)
+		}
+		a.LastModified = &t
+	case propSEQUENCE:
+		n, err := strconv.Atoi(p.Value)
+		if err != nil {
+			return errors.Wrapf(ErrInvalidValue, "SEQUENCE=%s", p.Value)
+		}
+		a.Sequence = n
+	case propRECURRENCEID:
+		t, _, err := parseDateTime(p.Value, loc)
+		if err != nil {
+			return errors.Wrap(err, propRECURRENCEID)
+		}
+		a.RecurrenceID = &t
+	case propRRULE:
+		rule, err := parseRRule(p.Value, loc)
+		if err != nil {
+			return errors.Wrap(err, propRRULE)
+		}
+		a.RRules = append(a.RRules, rule)
+	case propRDATE:
+		dates, err := parseDateTimeList(p.Value, loc)
+		if err != nil {
+			return errors.Wrap(err, propRDATE)
+		}
+		a.RDates = append(a.RDates, dates...)
+	case propEXDATE:
+		dates, err := parseDateTimeList(p.Value, loc)
+		if err != nil {
+			return errors.Wrap(err, propEXDATE)
+		}
+		a.ExDates = append(a.ExDates, dates...)
+	default:
+		switch {
+		case isXProp(p.Name):
+			a.XProps = append(a.XProps, p)
+		case isIanaProp(p.Name):
+			a.IanaProps = append(a.IanaProps, p)
+		}
+	}
+
+	return nil
+}
+
 // --------------------------------------------------------------------------
 // Вспомогательные функции
 // --------------------------------------------------------------------------
@@ -789,6 +1224,12 @@ func buildRelation(p model.Property) model.Relation {
 	if relType != "" {
 		rel.Type = parseRelType(relType)
 	}
+	gap := p.ParamValue("GAP")
+	if gap != "" {
+		if d, err := parseDuration(gap); err == nil {
+			rel.Gap = &d
+		}
+	}
 	return rel
 }
 
@@ -804,6 +1245,26 @@ func parseDateTimeList(s string, loc *time.Location) ([]time.Time, error) {
 		result = append(result, t)
 	}
 	return result, nil
+}
+
+// parseAttachment разбирает свойство ATTACH (RFC 5545 §3.8.1.1).
+// При ENCODING=BASE64 декодирует встроенные данные; иначе сохраняет значение как URI.
+func parseAttachment(p model.Property) (model.Attachment, error) {
+	a := model.Attachment{
+		MIMEType: p.ParamValue("FMTTYPE"),
+	}
+	if strings.EqualFold(p.ParamValue("ENCODING"), "BASE64") {
+		// Удаляем пробелы, возможные после line-unfolding.
+		raw := strings.ReplaceAll(p.Value, " ", "")
+		data, err := base64.StdEncoding.DecodeString(raw)
+		if err != nil {
+			return a, errors.Wrap(err, "ATTACH BASE64")
+		}
+		a.Data = data
+	} else {
+		a.URI = p.Value
+	}
+	return a, nil
 }
 
 // isXProp проверяет, является ли имя свойства нестандартным (X-*).

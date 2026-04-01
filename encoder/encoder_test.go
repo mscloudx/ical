@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mscloudx/ical/encoder"
+	"github.com/mscloudx/ical/model"
+	"github.com/mscloudx/ical/parser"
 	"github.com/stretchr/testify/suite"
-	"gitverse.ru/cloudcoder/ical/encoder"
-	"gitverse.ru/cloudcoder/ical/model"
-	"gitverse.ru/cloudcoder/ical/parser"
 )
 
 // EncoderSuite проверяет корректность сериализации Calendar → .ics.
@@ -217,9 +217,304 @@ func (s *EncoderSuite) TestRoundTrip_RecurrenceDaily() {
 }
 
 func (s *EncoderSuite) TestRoundTrip_TodoWithAlarm() {
-	s.assertRoundTrip("08_vtodo/02_todo_with_alarm.ics")
+	s.assertRoundTrip("10_vtodo/02_todo_with_alarm.ics")
 }
 
 func (s *EncoderSuite) TestRoundTrip_SimpleJournal() {
-	s.assertRoundTrip("09_vjournal/01_simple_journal.ics")
+	s.assertRoundTrip("11_vjournal/01_simple_journal.ics")
+}
+
+func (s *EncoderSuite) TestRoundTrip_RFC7986Properties() {
+	s.assertRoundTrip("05_extensions/01_rfc7986_properties.ics")
+}
+
+func (s *EncoderSuite) TestRoundTrip_RFC7953Availability() {
+	s.assertRoundTrip("05_extensions/02_rfc7953_availability.ics")
+}
+
+func (s *EncoderSuite) TestRoundTrip_RFC9073Publishing() {
+	s.assertRoundTrip("05_extensions/04_rfc9073_publishing.ics")
+}
+
+func (s *EncoderSuite) TestRoundTrip_RFC9253Relationships() {
+	s.assertRoundTrip("05_extensions/05_rfc9253_relationships.ics")
+}
+
+func (s *EncoderSuite) TestRoundTrip_RFC9074Alarms() {
+	s.assertRoundTrip("05_extensions/09_rfc9074_alarms.ics")
+}
+
+func (s *EncoderSuite) TestRoundTrip_RFC7529RScale() {
+	s.assertRoundTrip("05_extensions/07_rfc7529_rscale.ics")
+}
+
+func (s *EncoderSuite) TestEncode_ParticipantPropertyOrder() {
+	// Arrange
+	cal := &model.Calendar{
+		ProdID: "-//Test//EN",
+		Events: []model.Event{
+			{
+				UID: "event-1",
+				Participants: []model.Participant{
+					{
+						UID:             "part-1",
+						ParticipantType: "INDIVIDUAL",
+						DTStamp:         time.Date(2023, 10, 24, 12, 0, 0, 0, time.UTC),
+					},
+				},
+			},
+		},
+	}
+
+	// Act
+	actual, err := encoder.MarshalString(cal)
+
+	// Assert
+	s.Require().NoError(err)
+
+	// Check order: BEGIN:PARTICIPANT followed by UID then DTSTAMP
+	lines := strings.Split(actual, "\r\n")
+	foundBegin := false
+	for i, line := range lines {
+		if line != "BEGIN:PARTICIPANT" {
+			continue
+		}
+		foundBegin = true
+		s.Require().Greater(len(lines), i+2)
+		s.Equal("UID:part-1", lines[i+1])
+		s.Equal("DTSTAMP:20231024T120000Z", lines[i+2])
+		break
+	}
+	s.True(foundBegin, "PARTICIPANT block not found")
+}
+
+func (s *EncoderSuite) TestEncode_ParticipantOrder_ABNF() {
+	// Arrange
+	cal := &model.Calendar{
+		ProdID: "-//Test//EN",
+		Events: []model.Event{
+			{
+				UID: "event-1",
+				Participants: []model.Participant{
+					{
+						UID:             "part-1",
+						ParticipantType: "INDIVIDUAL",
+						DTStamp:         time.Date(2023, 10, 24, 12, 0, 0, 0, time.UTC),
+						XProps: []model.Property{
+							{Name: "X-TEST", Value: "test-value"},
+						},
+						Locations: []model.LocationComponent{
+							{UID: "loc-1", Name: "Room 1"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Act
+	actual, err := encoder.MarshalString(cal)
+
+	// Assert
+	s.Require().NoError(err)
+
+	// Check order: X-TEST must be BEFORE BEGIN:LOCATION
+	lines := strings.Split(actual, "\r\n")
+	idxXProp := -1
+	idxBeginLoc := -1
+	for i, line := range lines {
+		if line == "X-TEST:test-value" {
+			idxXProp = i
+		}
+		if line == "BEGIN:LOCATION" {
+			idxBeginLoc = i
+		}
+	}
+	s.NotEqual(-1, idxXProp, "X-TEST not found")
+	s.NotEqual(-1, idxBeginLoc, "BEGIN:LOCATION not found")
+	s.Less(idxXProp, idxBeginLoc, "X-TEST must be before BEGIN:LOCATION")
+}
+
+func (s *EncoderSuite) TestEncode_RFC6868ParameterValueEncoding() {
+	// Arrange
+	cal := &model.Calendar{
+		ProdID: "-//Test//EN",
+		Events: []model.Event{
+			{
+				UID:     "event-1",
+				DTStamp: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				DTStart: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				Attendees: []model.Attendee{
+					{
+						Address: "mailto:babe@example.com",
+						Name:    "George Herman \"Babe\" Ruth",
+						Params: []model.Param{
+							{Name: "X-NOTE", Values: []string{"Line1\nLine2"}},
+							{Name: "X-CARETS", Values: []string{"Hat ^Carets^"}},
+							{Name: "X-RAW", Values: []string{"Keep ^x here"}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Act
+	actual, err := encoder.MarshalString(cal)
+
+	// Assert
+	s.Require().NoError(err)
+	s.Contains(actual, "CN=\"George Herman ^'Babe^' Ruth\"")
+	s.Contains(actual, "X-NOTE=Line1^nLine2")
+	s.Contains(actual, "X-CARETS=\"Hat")
+	s.Contains(actual, "^^Carets^^\"")
+	s.Contains(actual, "X-RAW=\"Keep ^^x here\"")
+}
+
+func (s *EncoderSuite) TestEncode_RFC7529RScaleAndSkip() {
+	// Arrange
+	cal := &model.Calendar{
+		ProdID: "-//Test//EN",
+		Events: []model.Event{
+			{
+				UID:     "event-rrule-1",
+				DTStamp: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				DTStart: time.Date(2024, 1, 5, 9, 0, 0, 0, time.UTC),
+				RRules: []model.RecurrenceRule{
+					{
+						Freq:       model.FreqMonthly,
+						RScale:     model.RecurrenceScale("HEBREW"),
+						Skip:       model.SkipForward,
+						Count:      3,
+						ByMonthDay: []int{30},
+					},
+				},
+			},
+		},
+	}
+
+	// Act
+	actual, err := encoder.MarshalString(cal)
+
+	// Assert
+	s.Require().NoError(err)
+	s.Contains(actual, "RRULE:FREQ=MONTHLY;RSCALE=HEBREW;SKIP=FORWARD;COUNT=3;BYMONTHDAY=30")
+}
+
+func (s *EncoderSuite) TestRoundTrip_RFC6868ParamEncoding() {
+	s.assertRoundTrip("05_extensions/11_rfc6868_param_encoding.ics")
+}
+
+// --------------------------------------------------------------------------
+// TEXT escaping / unescaping (RFC 5545 §3.3.11)
+// --------------------------------------------------------------------------
+
+func (s *EncoderSuite) TestEncode_TextEscaping() {
+	// Arrange: SUMMARY и DESCRIPTION содержат спецсимволы TEXT-типа.
+	cal := &model.Calendar{
+		ProdID: "-//Test//EN",
+		Events: []model.Event{
+			{
+				UID:         "escape-test-001",
+				Summary:     `Meeting; Important, Very important`,
+				Description: "Line one\nLine two\nBackslash: \\",
+				Location:    `Room "Alpha", Floor 3`,
+			},
+		},
+	}
+
+	// Act
+	actual, err := encoder.MarshalString(cal)
+
+	// Assert: спецсимволы должны быть экранированы в выводе.
+	s.Require().NoError(err)
+	s.Contains(actual, `SUMMARY:Meeting\; Important\, Very important`)
+	s.Contains(actual, `Line one\nLine two`)
+	s.Contains(actual, `Backslash: \\`)
+	// Запятая в LOCATION экранируется.
+	s.Contains(actual, `Room "Alpha"\, Floor 3`)
+}
+
+func (s *EncoderSuite) TestRoundTrip_TextEscaping() {
+	// Arrange: данные со спецсимволами.
+	original := &model.Calendar{
+		ProdID: "-//Test//EN",
+		Events: []model.Event{
+			{
+				UID:         "round-trip-escape-001",
+				Summary:     `Status; Done, Archived`,
+				Description: "First line\nSecond line\nSlash: \\",
+				Location:    `Main hall, Building A`,
+			},
+		},
+	}
+
+	// Act: кодируем → парсим обратно.
+	encoded, err := encoder.MarshalString(original)
+	s.Require().NoError(err)
+
+	parsed, err := parser.ParseBytes([]byte(encoded))
+	s.Require().NoError(err)
+	s.Require().Len(parsed.Events, 1)
+
+	// Assert: значения должны совпасть после round-trip.
+	e := parsed.Events[0]
+	s.Equal(original.Events[0].Summary, e.Summary)
+	s.Equal(original.Events[0].Description, e.Description)
+	s.Equal(original.Events[0].Location, e.Location)
+}
+
+func (s *EncoderSuite) TestEncode_UTF8LineFolding() {
+	// Arrange: SUMMARY из кириллических символов длиной > 75 байт.
+	// Каждый символ кириллицы — 2 байта в UTF-8.
+	// 40 символов × 2 байта = 80 байт → должен быть фолдинг.
+	cyrillicSummary := strings.Repeat("Б", 40) // 80 байт
+
+	cal := &model.Calendar{
+		ProdID: "-//Test//EN",
+		Events: []model.Event{
+			{
+				UID:     "utf8-fold-001",
+				Summary: cyrillicSummary,
+			},
+		},
+	}
+
+	// Act
+	actual, err := encoder.MarshalString(cal)
+
+	// Assert: фолдинг произошёл, но round-trip должен восстановить оригинал.
+	s.Require().NoError(err)
+	s.Contains(actual, "\r\n ")
+
+	parsed, parseErr := parser.ParseBytes([]byte(actual))
+	s.Require().NoError(parseErr)
+	s.Require().Len(parsed.Events, 1)
+	s.Equal(cyrillicSummary, parsed.Events[0].Summary)
+}
+
+func (s *EncoderSuite) TestRoundTrip_EscapedCharactersFile() {
+	// Файл содержит \; \, \n \\ в SUMMARY, DESCRIPTION, LOCATION.
+	// После parse→encode→parse значения должны совпасть.
+	path := filepath.Join(s.examplesDir, "04_edge_cases", "03_escaped_characters.ics")
+	f, err := os.Open(path)
+	s.Require().NoError(err)
+	defer f.Close()
+
+	original, err := parser.Parse(f)
+	s.Require().NoError(err)
+	s.Require().Len(original.Events, 1)
+
+	encoded, err := encoder.MarshalString(original)
+	s.Require().NoError(err)
+
+	roundTripped, err := parser.ParseBytes([]byte(encoded))
+	s.Require().NoError(err)
+	s.Require().Len(roundTripped.Events, 1)
+
+	e1 := original.Events[0]
+	e2 := roundTripped.Events[0]
+	s.Equal(e1.Summary, e2.Summary)
+	s.Equal(e1.Description, e2.Description)
+	s.Equal(e1.Location, e2.Location)
 }

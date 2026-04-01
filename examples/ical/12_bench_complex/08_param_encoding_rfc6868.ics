@@ -1,0 +1,11 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Bench//Complex//EN
+BEGIN:VEVENT
+UID:evt-param-1
+DTSTAMP:20240301T080000Z
+DTSTART:20240401T090000Z
+ATTENDEE;CN=George Herman ^'Babe^' Ruth;X-NOTE=Line1^nLine2;X-CARETS="Hat ^^Carets^^";X-RAW=Keep ^x here:mailto:babe@example.com
+SUMMARY:Param Encoding
+END:VEVENT
+END:VCALENDAR

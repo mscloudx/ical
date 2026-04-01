@@ -3,8 +3,8 @@ package model_test
 import (
 	"testing"
 
+	"github.com/mscloudx/ical/model"
 	"github.com/stretchr/testify/suite"
-	"gitverse.ru/cloudcoder/ical/model"
 )
 
 // PropertySuite — набор тестов для методов Property.

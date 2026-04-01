@@ -1,0 +1,13 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//mscloudx//iCalendar//EN
+BEGIN:VEVENT
+UID:rfc6868-ext-001@example.com
+DTSTAMP:20240101T000000Z
+DTSTART:20240315T140000Z
+DTEND:20240315T150000Z
+SUMMARY:RFC 6868 Parameter Encoding Demo
+ATTENDEE;CN=George Herman ^'Babe^' Ruth;X-NOTE=Line1^nLine2;X-CARETS="Hat ^^Carets^^":mailto:babe@example.com
+ATTENDEE;CN=Simple Name;X-MULTI=val1^nval2^nval3:mailto:simple@example.com
+END:VEVENT
+END:VCALENDAR

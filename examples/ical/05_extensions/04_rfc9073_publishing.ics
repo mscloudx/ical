@@ -1,0 +1,29 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//mscloudx//iCalendar//EN
+BEGIN:VEVENT
+UID:publishing-event@example.com
+DTSTAMP:20231015T120000Z
+DTSTART:20231016T090000Z
+DURATION:PT1H
+SUMMARY:Презентация продукта
+STYLED-DESCRIPTION;VALUE=URI:https://example.com/desc.html
+STRUCTURED-DATA;FMTTYPE=application/json;SCHEMA="https://schema.org/Event":{"name":"Product Launch"}
+BEGIN:PARTICIPANT
+UID:part1@example.com
+KIND:INDIVIDUAL
+CALENDAR-ADDRESS:mailto:john@example.com
+SUMMARY:Джон Доу (Спикер)
+END:PARTICIPANT
+BEGIN:LOCATION
+UID:loc1@example.com
+NAME:Main Hall
+LOCATION-TYPE:ROOM
+END:LOCATION
+BEGIN:RESOURCE
+UID:res1@example.com
+NAME:Projector
+RESOURCE-TYPE:PROJECTOR
+END:RESOURCE
+END:VEVENT
+END:VCALENDAR

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mscloudx/ical/model"
 	"github.com/pkg/errors"
-	"gitverse.ru/cloudcoder/ical/model"
 )
 
 // Константы длин форматов даты/времени в iCalendar.
@@ -241,6 +241,10 @@ func parseRRule(s string, loc *time.Location) (model.RecurrenceRule, error) {
 			if rule.Freq == model.FreqUnspecified {
 				return rule, errors.Wrapf(ErrUnknownFrequency, "FREQ=%s", val)
 			}
+		case "RSCALE":
+			rule.RScale = parseRScale(val)
+		case "SKIP":
+			rule.Skip = parseRSkip(val)
 		case "UNTIL":
 			ut, _, parseErr := parseDateTime(val, loc)
 			if parseErr != nil {
@@ -284,6 +288,34 @@ func parseRRule(s string, loc *time.Location) (model.RecurrenceRule, error) {
 	}
 
 	return rule, nil
+}
+
+// parseRScale конвертирует строку в RecurrenceScale.
+// Нестандартные значения возвращаются как есть.
+func parseRScale(s string) model.RecurrenceScale {
+	upper := strings.ToUpper(s)
+	switch upper {
+	case "GREGORIAN":
+		return model.RScaleGregorian
+	default:
+		return model.RecurrenceScale(s)
+	}
+}
+
+// parseRSkip конвертирует строку в RecurrenceSkip.
+// Нестандартные значения возвращаются как есть.
+func parseRSkip(s string) model.RecurrenceSkip {
+	upper := strings.ToUpper(s)
+	switch upper {
+	case "OMIT":
+		return model.SkipOmit
+	case "BACKWARD":
+		return model.SkipBackward
+	case "FORWARD":
+		return model.SkipForward
+	default:
+		return model.RecurrenceSkip(s)
+	}
 }
 
 // parseByDay парсит список BYDAY: "MO,WE,FR" или "1MO,-1FR".
@@ -356,6 +388,18 @@ func parseAttendee(params []model.Param, value string) model.Attendee {
 			a.Status = parsePartStat(v)
 		case "RSVP":
 			a.RSVP = strings.EqualFold(v, "TRUE")
+		case "SCHEDULE-AGENT":
+			a.ScheduleAgent = parseScheduleAgent(v)
+		case "SCHEDULE-FORCE-SEND":
+			a.ScheduleForceSend = strings.ToUpper(v)
+		case "SCHEDULE-STATUS":
+			// Параметр может содержать несколько кодов через запятую.
+			for _, code := range param.Values {
+				code = strings.TrimSpace(code)
+				if code != "" {
+					a.ScheduleStatus = append(a.ScheduleStatus, code)
+				}
+			}
 		default:
 			extra = append(extra, param)
 		}
@@ -363,6 +407,74 @@ func parseAttendee(params []model.Param, value string) model.Attendee {
 	a.Params = extra
 
 	return a
+}
+
+// --------------------------------------------------------------------------
+// Парсинг iTIP / RFC 6638
+// --------------------------------------------------------------------------
+
+// parseMethod конвертирует строку в Method (RFC 5546 §3.2).
+func parseMethod(s string) model.Method {
+	switch strings.ToUpper(s) {
+	case "PUBLISH":
+		return model.MethodPublish
+	case "REQUEST":
+		return model.MethodRequest
+	case "REPLY":
+		return model.MethodReply
+	case "ADD":
+		return model.MethodAdd
+	case "CANCEL":
+		return model.MethodCancel
+	case "REFRESH":
+		return model.MethodRefresh
+	case "COUNTER":
+		return model.MethodCounter
+	case "DECLINECOUNTER":
+		return model.MethodDeclineCounter
+	default:
+		return model.MethodUnspecified
+	}
+}
+
+// parseRequestStatus парсит значение REQUEST-STATUS (RFC 5545 §3.8.8.3).
+//
+// Формат: <код>;<описание>[;<дополнительные данные>]
+// Пример: "2.0;Success" или "3.7;Invalid calendar user;ATTENDEE:mailto:jdoe@example.com"
+func parseRequestStatus(s string) model.RequestStatus {
+	var rs model.RequestStatus
+	// Ищем первую точку с запятой для разделения кода и описания.
+	firstSemi := strings.IndexByte(s, ';')
+	if firstSemi < 0 {
+		rs.Code = s
+		return rs
+	}
+	rs.Code = s[:firstSemi]
+	rest := s[firstSemi+1:]
+
+	// Ищем вторую точку с запятой для разделения описания и доп. данных.
+	secondSemi := strings.IndexByte(rest, ';')
+	if secondSemi < 0 {
+		rs.Description = rest
+		return rs
+	}
+	rs.Description = rest[:secondSemi]
+	rs.ExtraData = rest[secondSemi+1:]
+	return rs
+}
+
+// parseScheduleAgent конвертирует строку в ScheduleAgent (RFC 6638 §7.1).
+func parseScheduleAgent(s string) model.ScheduleAgent {
+	switch strings.ToUpper(s) {
+	case "SERVER":
+		return model.ScheduleAgentServer
+	case "CLIENT":
+		return model.ScheduleAgentClient
+	case "NONE":
+		return model.ScheduleAgentNone
+	default:
+		return model.ScheduleAgentUnspecified
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -564,8 +676,46 @@ func parseRelType(s string) model.RelationshipType {
 		return model.RelTypeChild
 	case "SIBLING":
 		return model.RelTypeSibling
+	case "FINISHTOSTART":
+		return model.RelTypeFinishToStart
+	case "FINISHTOFINISH":
+		return model.RelTypeFinishToFinish
+	case "STARTTOFINISH":
+		return model.RelTypeStartToFinish
+	case "STARTTOSTART":
+		return model.RelTypeStartToStart
+	case "FIRST":
+		return model.RelTypeFirst
+	case "NEXT":
+		return model.RelTypeNext
+	case "DEPENDS-ON":
+		return model.RelTypeDependsOn
+	case "REFID":
+		return model.RelTypeRefID
+	case "CONCEPT":
+		return model.RelTypeConcept
+	case "SNOOZE":
+		return model.RelTypeSnooze
 	default:
 		return model.RelTypeUnspecified
+	}
+}
+
+// parseProximity конвертирует строку в Proximity.
+// Если значение не стандартное — возвращает исходную строку как Proximity.
+func parseProximity(s string) model.Proximity {
+	upper := strings.ToUpper(s)
+	switch upper {
+	case "ARRIVE":
+		return model.ProximityArrive
+	case "DEPART":
+		return model.ProximityDepart
+	case "CONNECT":
+		return model.ProximityConnect
+	case "DISCONNECT":
+		return model.ProximityDisconnect
+	default:
+		return model.Proximity(s)
 	}
 }
 

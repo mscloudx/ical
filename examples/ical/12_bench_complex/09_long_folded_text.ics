@@ -1,0 +1,11 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Bench//Complex//EN
+BEGIN:VEVENT
+UID:evt-long-1
+DTSTAMP:20240301T080000Z
+DTSTART:20240401T090000Z
+SUMMARY:Very Long Summary For Folding
+DESCRIPTION:This is a very long description designed to exceed the 75 byte line length limit so that it triggers line folding in the encoder and tests the unfolding logic in the parser across multiple segments and sentences without losing any data or ordering in the final string.
+END:VEVENT
+END:VCALENDAR

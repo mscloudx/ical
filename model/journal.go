@@ -31,6 +31,9 @@ type Journal struct {
 	// URL — связанный URL.
 	// RFC 5545 §3.8.4.6.
 	URL string
+	// Attach — вложения: URI или встроенные двоичные данные (BASE64).
+	// RFC 5545 §3.8.1.1.
+	Attach []Attachment
 
 	// Status — статус записи (DRAFT, FINAL, CANCELLED).
 	// RFC 5545 §3.8.1.11.
@@ -73,10 +76,28 @@ type Journal struct {
 	// Related — связи с другими компонентами (RELATED-TO).
 	// RFC 5545 §3.8.4.5.
 	Related []Relation
+	// Concepts — семантические категории (CONCEPT, RFC 9253).
+	Concepts []string
+	// Links — связи с внешними ресурсами (LINK, RFC 9253).
+	Links []Link
+	// RefIDs — идентификаторы связей (REFID, RFC 9253).
+	RefIDs []string
 
 	// XProps — нестандартные свойства (X-*).
 	XProps []Property
 	// IanaProps — зарегистрированные IANA свойства без префикса X-.
 	// Например: COLOR, CONFERENCE (RFC 7986).
 	IanaProps []Property
+
+	// StyledDescriptions — форматированное описание (RFC 9073).
+	StyledDescriptions []StyledDescription
+	// StructuredData — структурированные данные (RFC 9073).
+	StructuredData []StructuredData
+
+	// Participants — участники (RFC 9073).
+	Participants []Participant
+	// Locations — локации (RFC 9073).
+	Locations []LocationComponent
+	// Resources — ресурсы (RFC 9073).
+	Resources []ResourceComponent
 }

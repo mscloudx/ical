@@ -76,7 +76,7 @@ type WeekdayNum struct {
 
 // --------------------------------------------------------------------------
 // RecurrenceRule — правило повторения (RRULE).
-// RFC 5545 §3.3.10, §3.8.5.3.
+// RFC 5545 §3.3.10, §3.8.5.3; RFC 7529 (RSCALE, SKIP).
 // --------------------------------------------------------------------------
 
 // RecurrenceRule описывает правило повторения события или перехода.
@@ -87,6 +87,9 @@ type WeekdayNum struct {
 type RecurrenceRule struct {
 	// Freq — частота повторения (обязательное поле).
 	Freq Frequency
+	// RScale — календарная шкала (RFC 7529).
+	// Если не задана — используется GREGORIAN.
+	RScale RecurrenceScale
 	// Until — дата окончания повторений (nil, если не ограничено по дате).
 	// Взаимоисключающее с Count.
 	Until *time.Time
@@ -95,6 +98,8 @@ type RecurrenceRule struct {
 	Count int
 	// Interval — интервал между повторениями (0 или 1 = каждый раз).
 	Interval int
+	// Skip — стратегия пропуска несуществующих дат (RFC 7529).
+	Skip RecurrenceSkip
 
 	// BySecond — секунды (0–60).
 	BySecond []int
@@ -116,6 +121,40 @@ type RecurrenceRule struct {
 	BySetPos []int
 	// WkSt — первый день недели (по умолчанию Monday).
 	WkSt Weekday
+}
+
+// --------------------------------------------------------------------------
+// RecurrenceScale и RecurrenceSkip (RFC 7529)
+// --------------------------------------------------------------------------
+
+// RecurrenceScale определяет календарную шкалу для RRULE (RSCALE).
+type RecurrenceScale string
+
+const (
+	// RScaleGregorian — шкала по умолчанию.
+	RScaleGregorian RecurrenceScale = "GREGORIAN"
+)
+
+// String возвращает строковое значение шкалы.
+func (rs RecurrenceScale) String() string {
+	return string(rs)
+}
+
+// RecurrenceSkip определяет стратегию пропуска дат (SKIP).
+type RecurrenceSkip string
+
+const (
+	// SkipOmit — пропускать несуществующие даты.
+	SkipOmit RecurrenceSkip = "OMIT"
+	// SkipBackward — переносить на ближайшую предыдущую дату.
+	SkipBackward RecurrenceSkip = "BACKWARD"
+	// SkipForward — переносить на ближайшую следующую дату.
+	SkipForward RecurrenceSkip = "FORWARD"
+)
+
+// String возвращает строковое значение стратегии пропуска.
+func (rs RecurrenceSkip) String() string {
+	return string(rs)
 }
 
 // --------------------------------------------------------------------------

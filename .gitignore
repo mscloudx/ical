@@ -25,7 +25,6 @@ go.work.sum
 AGENTS.md
 GEMINI.md
 QWEN.md
-CLAUDE.md
 GPT.md
 .agents/
 .agent/

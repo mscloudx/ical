@@ -1,4 +1,4 @@
-module gitverse.ru/cloudcoder/ical
+module github.com/mscloudx/ical
 
 go 1.26
 

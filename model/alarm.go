@@ -8,6 +8,8 @@ import "time"
 // DISPLAY (визуальное), AUDIO (звуковое) и EMAIL (email-уведомление).
 // RFC 5545 §3.6.6.
 type Alarm struct {
+	// UID — уникальный идентификатор напоминания (RFC 9074).
+	UID string
 	// Action — тип действия напоминания (DISPLAY, AUDIO, EMAIL).
 	// RFC 5545 §3.8.6.1.
 	Action AlarmAction
@@ -24,6 +26,9 @@ type Alarm struct {
 	// Attendees — получатели email (только для ACTION:EMAIL).
 	// RFC 5545 §3.8.4.1.
 	Attendees []Attendee
+	// Attach — вложения (только для ACTION:EMAIL).
+	// RFC 5545 §3.8.1.1.
+	Attach []Attachment
 
 	// Duration — интервал повтора напоминания (nil, если не повторяется).
 	// Используется совместно с Repeat.
@@ -32,6 +37,15 @@ type Alarm struct {
 	// Repeat — количество повторов напоминания.
 	// RFC 5545 §3.8.6.2.
 	Repeat int
+
+	// Acknowledged — время подтверждения напоминания (RFC 9074).
+	Acknowledged *time.Time
+	// Proximity — proximity-триггер (RFC 9074).
+	Proximity Proximity
+	// Related — связи с другими VALARM (RELATED-TO;RELTYPE=SNOOZE, RFC 9074).
+	Related []Relation
+	// Locations — proximity-локации (VLOCATION, RFC 9074 + RFC 9073).
+	Locations []LocationComponent
 
 	// XProps — нестандартные свойства (X-*).
 	XProps []Property

@@ -1,6 +1,6 @@
 BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:-//CloudCoder//iCal Parser//RU
+PRODID:-//mscloudx//iCal Parser//RU
 BEGIN:VEVENT
 UID:escaped-chars-001@example.com
 DTSTAMP:20231024T120000Z

@@ -1,0 +1,17 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Bench//Extensions//EN
+NAME:Extended Calendar
+DESCRIPTION:Calendar with RFC 7986 properties
+REFRESH-INTERVAL;VALUE=DURATION:PT30M
+COLOR:#ff8800
+IMAGE;VALUE=URI:https://example.com/icon.png
+SOURCE:https://example.com/calendar.ics
+BEGIN:VEVENT
+UID:ext-7986-1
+DTSTAMP:20240301T080000Z
+DTSTART:20240401T090000Z
+SUMMARY:Event With IMAGE
+IMAGE;VALUE=URI:https://example.com/event-banner.png
+END:VEVENT
+END:VCALENDAR

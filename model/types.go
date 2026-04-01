@@ -153,6 +153,26 @@ const (
 	RelTypeChild
 	// RelTypeSibling — компонент того же уровня.
 	RelTypeSibling
+	// RelTypeFinishToStart — связь окончание→начало.
+	RelTypeFinishToStart
+	// RelTypeFinishToFinish — связь окончание→окончание.
+	RelTypeFinishToFinish
+	// RelTypeStartToFinish — связь начало→окончание.
+	RelTypeStartToFinish
+	// RelTypeStartToStart — связь начало→начало.
+	RelTypeStartToStart
+	// RelTypeFirst — первый в цепочке.
+	RelTypeFirst
+	// RelTypeNext — следующий в цепочке.
+	RelTypeNext
+	// RelTypeDependsOn — зависит от другого компонента.
+	RelTypeDependsOn
+	// RelTypeRefID — связь через REFID.
+	RelTypeRefID
+	// RelTypeConcept — связь через CONCEPT.
+	RelTypeConcept
+	// RelTypeSnooze — связь "snooze" между VALARM (RFC 9074).
+	RelTypeSnooze
 )
 
 // --------------------------------------------------------------------------
@@ -177,6 +197,113 @@ const (
 )
 
 // --------------------------------------------------------------------------
+// Method — метод iTIP (RFC 5546 §3.2).
+// RFC 5545 §3.7.2.
+// --------------------------------------------------------------------------
+
+// Method определяет метод iTIP для iCalendar-объекта.
+type Method int
+
+const (
+	// MethodUnspecified — метод не задан (нулевое значение).
+	MethodUnspecified Method = iota
+	// MethodPublish — публикация компонента без ответа.
+	MethodPublish
+	// MethodRequest — запрос участия или обновление компонента.
+	MethodRequest
+	// MethodReply — ответ на REQUEST от участника.
+	MethodReply
+	// MethodAdd — добавление экземпляра к повторяющемуся компоненту.
+	MethodAdd
+	// MethodCancel — отмена компонента.
+	MethodCancel
+	// MethodRefresh — запрос актуальной версии компонента.
+	MethodRefresh
+	// MethodCounter — встречное предложение по параметрам компонента.
+	MethodCounter
+	// MethodDeclineCounter — отклонение встречного предложения.
+	MethodDeclineCounter
+)
+
+// String возвращает RFC 5546 строку для метода iTIP.
+func (m Method) String() string {
+	switch m {
+	case MethodPublish:
+		return "PUBLISH"
+	case MethodRequest:
+		return "REQUEST"
+	case MethodReply:
+		return "REPLY"
+	case MethodAdd:
+		return "ADD"
+	case MethodCancel:
+		return "CANCEL"
+	case MethodRefresh:
+		return "REFRESH"
+	case MethodCounter:
+		return "COUNTER"
+	case MethodDeclineCounter:
+		return "DECLINECOUNTER"
+	default:
+		return ""
+	}
+}
+
+// --------------------------------------------------------------------------
+// ScheduleAgent — агент планирования (RFC 6638 §7.1).
+// --------------------------------------------------------------------------
+
+// ScheduleAgent определяет, кто выполняет iTIP-обработку для участника.
+type ScheduleAgent int
+
+const (
+	// ScheduleAgentUnspecified — агент не задан (нулевое значение, сервер обрабатывает по умолчанию).
+	ScheduleAgentUnspecified ScheduleAgent = iota
+	// ScheduleAgentServer — сервер CalDAV выполняет iTIP-рассылку.
+	ScheduleAgentServer
+	// ScheduleAgentClient — клиент берёт iTIP-обработку на себя.
+	ScheduleAgentClient
+	// ScheduleAgentNone — iTIP-обработка отключена.
+	ScheduleAgentNone
+)
+
+// String возвращает RFC 6638 строку для агента планирования.
+func (sa ScheduleAgent) String() string {
+	switch sa {
+	case ScheduleAgentServer:
+		return "SERVER"
+	case ScheduleAgentClient:
+		return "CLIENT"
+	case ScheduleAgentNone:
+		return "NONE"
+	default:
+		return ""
+	}
+}
+
+// --------------------------------------------------------------------------
+// RequestStatus — статус обработки iTIP-запроса (RFC 5546 §3.6).
+// RFC 5545 §3.8.8.3.
+// --------------------------------------------------------------------------
+
+// RequestStatus содержит статусный код и описание результата iTIP-обработки.
+//
+// Формат значения: <код>;<описание>[;<дополнительные данные>]
+// Примеры кодов:
+//
+//	2.0  — Success
+//	3.7  — Invalid calendar user
+//	4.1  — Event conflict; date not suitable
+type RequestStatus struct {
+	// Code — трёхзначный код статуса (например, "2.0", "3.7").
+	Code string
+	// Description — текстовое описание статуса.
+	Description string
+	// ExtraData — дополнительные данные (опционально, например спорная часть запроса).
+	ExtraData string
+}
+
+// --------------------------------------------------------------------------
 // Переиспользуемые структуры
 // --------------------------------------------------------------------------
 
@@ -193,6 +320,14 @@ type Attendee struct {
 	Status ParticipationStatus
 	// RSVP — запрос подтверждения участия.
 	RSVP bool
+	// ScheduleAgent — кто выполняет iTIP-рассылку (RFC 6638 §7.1).
+	ScheduleAgent ScheduleAgent
+	// ScheduleForceSend — принудительная отправка iTIP-сообщения (RFC 6638 §7.2).
+	// Значения: "REQUEST", "REPLY" или пустая строка.
+	ScheduleForceSend string
+	// ScheduleStatus — статус планирования от сервера (RFC 6638 §7.3).
+	// Список кодов, разделённых запятой (например, "1.2" или "3.7").
+	ScheduleStatus []string
 	// Params — дополнительные параметры, не покрытые полями выше.
 	Params []Param
 }
@@ -204,6 +339,26 @@ type Relation struct {
 	Type RelationshipType
 	// UID — уникальный идентификатор связанного компонента.
 	UID string
+	// Gap — смещение/зазор между компонентами (GAP).
+	Gap *time.Duration
+}
+
+// Link представляет свойство LINK (RFC 9253).
+type Link struct {
+	// Value — значение свойства LINK.
+	Value string
+	// ValueType — тип значения (VALUE=URI/UID/XML-REFERENCE).
+	ValueType string
+	// Rel — тип связи (LINKREL).
+	Rel string
+	// FmtType — MIME-тип (FMTTYPE).
+	FmtType string
+	// Label — текстовая метка (LABEL).
+	Label string
+	// Language — язык метки (LANGUAGE).
+	Language string
+	// Params — дополнительные параметры LINK, не покрытые полями выше.
+	Params []Param
 }
 
 // Period представляет временной период (PERIOD value type).
@@ -331,9 +486,49 @@ func (rt RelationshipType) String() string {
 		return "CHILD"
 	case RelTypeSibling:
 		return "SIBLING"
+	case RelTypeFinishToStart:
+		return "FINISHTOSTART"
+	case RelTypeFinishToFinish:
+		return "FINISHTOFINISH"
+	case RelTypeStartToFinish:
+		return "STARTTOFINISH"
+	case RelTypeStartToStart:
+		return "STARTTOSTART"
+	case RelTypeFirst:
+		return "FIRST"
+	case RelTypeNext:
+		return "NEXT"
+	case RelTypeDependsOn:
+		return "DEPENDS-ON"
+	case RelTypeRefID:
+		return "REFID"
+	case RelTypeConcept:
+		return "CONCEPT"
+	case RelTypeSnooze:
+		return "SNOOZE"
 	default:
 		return ""
 	}
+}
+
+// Proximity определяет тип proximity-триггера для VALARM (RFC 9074).
+// Допускает как стандартные значения, так и iana-token/x-name.
+type Proximity string
+
+const (
+	// ProximityArrive — триггер при прибытии.
+	ProximityArrive Proximity = "ARRIVE"
+	// ProximityDepart — триггер при убытии.
+	ProximityDepart Proximity = "DEPART"
+	// ProximityConnect — триггер при подключении.
+	ProximityConnect Proximity = "CONNECT"
+	// ProximityDisconnect — триггер при отключении.
+	ProximityDisconnect Proximity = "DISCONNECT"
+)
+
+// String возвращает строковое значение proximity.
+func (p Proximity) String() string {
+	return string(p)
 }
 
 // String возвращает RFC 5545 строку для типа занятости.

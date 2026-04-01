@@ -3,7 +3,7 @@ package builder
 import (
 	"time"
 
-	"gitverse.ru/cloudcoder/ical/model"
+	"github.com/mscloudx/ical/model"
 )
 
 // AlarmOption — функция настройки Alarm.
@@ -73,8 +73,48 @@ func WithAlarmRepeat(r int) AlarmOption {
 	}
 }
 
+func WithAlarmUID(uid string) AlarmOption {
+	return func(a *model.Alarm) {
+		a.UID = uid
+	}
+}
+
+func WithAlarmAcknowledged(t time.Time) AlarmOption {
+	return func(a *model.Alarm) {
+		a.Acknowledged = &t
+	}
+}
+
+func WithAlarmProximity(p model.Proximity) AlarmOption {
+	return func(a *model.Alarm) {
+		a.Proximity = p
+	}
+}
+
+func WithAlarmRelated(rel model.Relation) AlarmOption {
+	return func(a *model.Alarm) {
+		a.Related = append(a.Related, rel)
+	}
+}
+
+func WithAlarmLocation(loc *model.LocationComponent) AlarmOption {
+	return func(a *model.Alarm) {
+		if loc == nil {
+			return
+		}
+		a.Locations = append(a.Locations, *loc)
+	}
+}
+
 func WithAlarmXProp(name, value string, params ...model.Param) AlarmOption {
 	return func(a *model.Alarm) {
 		a.XProps = append(a.XProps, model.Property{Name: name, Value: value, Params: params})
+	}
+}
+
+// WithAlarmAttachment добавляет вложение ATTACH к напоминанию (ACTION:EMAIL, RFC 5545 §3.8.1.1).
+func WithAlarmAttachment(att ...model.Attachment) AlarmOption {
+	return func(a *model.Alarm) {
+		a.Attach = append(a.Attach, att...)
 	}
 }

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mscloudx/ical/model"
 	"github.com/stretchr/testify/suite"
-	"gitverse.ru/cloudcoder/ical/model"
 )
 
 // TypesSuite — набор тестов для вспомогательных функций и типов.

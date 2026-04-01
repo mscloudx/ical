@@ -3,7 +3,7 @@ package builder
 import (
 	"time"
 
-	"gitverse.ru/cloudcoder/ical/model"
+	"github.com/mscloudx/ical/model"
 )
 
 // EventOption — функция настройки Event.
@@ -11,7 +11,11 @@ type EventOption func(*model.Event)
 
 // NewEvent создаёт новый VEVENT.
 // UID, DTStamp и DTStart обязательны.
-func NewEvent(uid string, dtStamp, dtStart time.Time, opts ...EventOption) model.Event {
+// Возвращает ErrEmptyUID, если uid пуст.
+func NewEvent(uid string, dtStamp, dtStart time.Time, opts ...EventOption) (model.Event, error) {
+	if uid == "" {
+		return model.Event{}, ErrEmptyUID
+	}
 	e := model.Event{
 		UID:     uid,
 		DTStamp: dtStamp,
@@ -21,7 +25,7 @@ func NewEvent(uid string, dtStamp, dtStart time.Time, opts ...EventOption) model
 	for _, opt := range opts {
 		opt(&e)
 	}
-	return e
+	return e, nil
 }
 
 func WithEventDTEnd(t time.Time) EventOption {
@@ -150,5 +154,61 @@ func WithEventRelatedTo(uid string, relType model.RelationshipType) EventOption 
 func WithEventXProp(name, value string, params ...model.Param) EventOption {
 	return func(e *model.Event) {
 		e.XProps = append(e.XProps, model.Property{Name: name, Value: value, Params: params})
+	}
+}
+
+// WithEventIanaProp добавляет зарегистрированное IANA-свойство к событию.
+func WithEventIanaProp(name, value string, params ...model.Param) EventOption {
+	return func(e *model.Event) {
+		e.IanaProps = append(e.IanaProps, model.Property{Name: name, Value: value, Params: params})
+	}
+}
+
+// WithEventParticipant добавляет PARTICIPANT (RFC 9073) к событию.
+func WithEventParticipant(p ...model.Participant) EventOption {
+	return func(e *model.Event) {
+		e.Participants = append(e.Participants, p...)
+	}
+}
+
+// WithEventLocationComponent добавляет LOCATION (RFC 9073) к событию.
+func WithEventLocationComponent(l ...model.LocationComponent) EventOption {
+	return func(e *model.Event) {
+		e.Locations = append(e.Locations, l...)
+	}
+}
+
+// WithEventResourceComponent добавляет RESOURCE (RFC 9073) к событию.
+func WithEventResourceComponent(r ...model.ResourceComponent) EventOption {
+	return func(e *model.Event) {
+		e.Resources = append(e.Resources, r...)
+	}
+}
+
+// WithEventStructuredData добавляет STRUCTURED-DATA (RFC 9073) к событию.
+func WithEventStructuredData(sd ...model.StructuredData) EventOption {
+	return func(e *model.Event) {
+		e.StructuredData = append(e.StructuredData, sd...)
+	}
+}
+
+// WithEventStyledDescription добавляет STYLED-DESCRIPTION (RFC 9073) к событию.
+func WithEventStyledDescription(sd ...model.StyledDescription) EventOption {
+	return func(e *model.Event) {
+		e.StyledDescriptions = append(e.StyledDescriptions, sd...)
+	}
+}
+
+// WithEventRequestStatus добавляет REQUEST-STATUS к событию (RFC 5546 §3.6).
+func WithEventRequestStatus(rs ...model.RequestStatus) EventOption {
+	return func(e *model.Event) {
+		e.RequestStatus = append(e.RequestStatus, rs...)
+	}
+}
+
+// WithEventAttachment добавляет вложение ATTACH к событию (RFC 5545 §3.8.1.1).
+func WithEventAttachment(a ...model.Attachment) EventOption {
+	return func(e *model.Event) {
+		e.Attach = append(e.Attach, a...)
 	}
 }

@@ -1,0 +1,10 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//EN
+BEGIN:VEVENT
+UID:case-test@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231025T090000Z
+STRUCTURED-DATA;value=URI;fmttype=application/json;schema="https://schema.org/Event":https://example.com/data
+END:VEVENT
+END:VCALENDAR

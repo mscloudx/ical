@@ -1,0 +1,13 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//mscloudx//iCal Parser//RU
+BEGIN:VJOURNAL
+UID:journal-001@example.com
+DTSTAMP:20231024T120000Z
+DTSTART;VALUE=DATE:20231024
+SUMMARY:Заметки с архитектурного комитета
+DESCRIPTION:Обсуждали использование Clean Architecture в Go проектах и решили применять слои delivery/usecase/repository.
+STATUS:FINAL
+CLASS:PRIVATE
+END:VJOURNAL
+END:VCALENDAR

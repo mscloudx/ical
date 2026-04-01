@@ -1,0 +1,60 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Test//EN
+BEGIN:VEVENT
+UID:event-9253@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231025T090000Z
+SUMMARY:RFC9253 Event
+CONCEPT:https://example.com/concept/meeting
+REFID:ref-1
+LINK;VALUE=URI;LINKREL=describedby;FMTTYPE=text/html;LABEL=Event Page;LANGUAGE=ru:https://example.com/event
+LINK;LINKREL=related,alternate;LABEL=Primary,Secondary:https://example.com/multi
+RELATED-TO;RELTYPE=DEPENDS-ON;GAP=PT15M:parent-uid@example.com
+BEGIN:PARTICIPANT
+UID:part-9253@example.com
+DTSTAMP:20231024T120000Z
+PARTICIPANT-TYPE:INDIVIDUAL
+CONCEPT:https://example.com/concept/speaker
+REFID:part-ref-1
+LINK;VALUE=URI;LINKREL=profile;LABEL=Profile:https://example.com/people/john
+END:PARTICIPANT
+BEGIN:LOCATION
+UID:loc-9253@example.com
+DTSTAMP:20231024T120000Z
+NAME:Room 9253
+CONCEPT:https://example.com/concept/location
+REFID:loc-ref-1
+LINK;VALUE=URI;LINKREL=info:https://example.com/location
+END:LOCATION
+BEGIN:RESOURCE
+UID:res-9253@example.com
+DTSTAMP:20231024T120000Z
+NAME:Projector 9253
+CONCEPT:https://example.com/concept/resource
+REFID:res-ref-1
+LINK;VALUE=URI;LINKREL=spec:https://example.com/resource
+END:RESOURCE
+END:VEVENT
+BEGIN:VTODO
+UID:todo-9253@example.com
+DTSTAMP:20231024T120000Z
+DTSTART:20231026T090000Z
+SUMMARY:Todo 9253
+CONCEPT:https://example.com/concept/todo
+REFID:todo-ref-1
+LINK;VALUE=URI;LINKREL=related;FMTTYPE=text/plain:https://example.com/todo
+RELATED-TO;RELTYPE=FINISHTOSTART;GAP=PT1H:event-9253@example.com
+END:VTODO
+BEGIN:VJOURNAL
+UID:journal-9253@example.com
+DTSTAMP:20231024T120000Z
+DTSTART;VALUE=DATE:20231027
+SUMMARY:Journal 9253
+DESCRIPTION:Note
+CONCEPT:https://example.com/concept/journal
+REFID:journal-ref-1
+LINK;VALUE=URI;LINKREL=alternate:https://example.com/journal
+RELATED-TO;RELTYPE=FIRST:series-1@example.com
+END:VJOURNAL
+END:VCALENDAR

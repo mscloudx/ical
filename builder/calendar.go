@@ -8,7 +8,9 @@
 package builder
 
 import (
-	"gitverse.ru/cloudcoder/ical/model"
+	"time"
+
+	"github.com/mscloudx/ical/model"
 )
 
 // CalendarOption — функция для настройки Calendar.
@@ -16,7 +18,11 @@ type CalendarOption func(*model.Calendar)
 
 // NewCalendar создаёт новый VCALENDAR.
 // По умолчанию задаёт Version="2.0".
-func NewCalendar(prodID string, opts ...CalendarOption) *model.Calendar {
+// Возвращает ErrEmptyProdID, если prodID пуст.
+func NewCalendar(prodID string, opts ...CalendarOption) (*model.Calendar, error) {
+	if prodID == "" {
+		return nil, ErrEmptyProdID
+	}
 	cal := &model.Calendar{
 		Version: "2.0",
 		ProdID:  prodID,
@@ -26,7 +32,7 @@ func NewCalendar(prodID string, opts ...CalendarOption) *model.Calendar {
 		opt(cal)
 	}
 
-	return cal
+	return cal, nil
 }
 
 // WithCalScale задаёт шкалу календаря (например, "GREGORIAN").
@@ -36,10 +42,73 @@ func WithCalScale(scale string) CalendarOption {
 	}
 }
 
-// WithMethod задаёт метод iTIP.
-func WithMethod(method string) CalendarOption {
+// WithMethod задаёт метод iTIP (RFC 5546 §3.2).
+func WithMethod(method model.Method) CalendarOption {
 	return func(c *model.Calendar) {
 		c.Method = method
+	}
+}
+
+// WithCalendarName задаёт текстовое название календаря (RFC 7986).
+func WithCalendarName(name string) CalendarOption {
+	return func(c *model.Calendar) {
+		c.Name = name
+	}
+}
+
+// WithCalendarDescription задаёт описание календаря (RFC 7986).
+func WithCalendarDescription(desc string) CalendarOption {
+	return func(c *model.Calendar) {
+		c.Description = desc
+	}
+}
+
+// WithCalendarUID задаёт уникальный идентификатор календаря (RFC 7986).
+func WithCalendarUID(uid string) CalendarOption {
+	return func(c *model.Calendar) {
+		c.UID = uid
+	}
+}
+
+// WithCalendarLastModified задаёт дату последнего изменения календаря (RFC 7986).
+func WithCalendarLastModified(t time.Time) CalendarOption {
+	return func(c *model.Calendar) {
+		c.LastModified = &t
+	}
+}
+
+// WithCalendarURL задаёт ссылку на календарь (RFC 7986).
+func WithCalendarURL(url string) CalendarOption {
+	return func(c *model.Calendar) {
+		c.URL = url
+	}
+}
+
+// WithCalendarCategories задаёт категории календаря (RFC 7986).
+func WithCalendarCategories(cats ...string) CalendarOption {
+	return func(c *model.Calendar) {
+		c.Categories = append(c.Categories, cats...)
+	}
+}
+
+// WithCalendarRefreshInterval задаёт рекомендуемый интервал обновления (RFC 7986).
+func WithCalendarRefreshInterval(d time.Duration) CalendarOption {
+	return func(c *model.Calendar) {
+		c.RefreshInterval = &d
+	}
+}
+
+// WithCalendarColor задаёт цвет календаря (RFC 7986).
+func WithCalendarColor(color string) CalendarOption {
+	return func(c *model.Calendar) {
+		c.Color = color
+	}
+}
+
+// WithCalendarSource задаёт источник календаря URI (RFC 7986).
+func WithCalendarSource(source string) CalendarOption {
+	return func(c *model.Calendar) {
+		c.Source = source
 	}
 }
 
@@ -75,6 +144,13 @@ func WithTimezones(timezones ...model.Timezone) CalendarOption {
 func WithFreeBusys(fbs ...model.FreeBusy) CalendarOption {
 	return func(c *model.Calendar) {
 		c.FreeBusys = append(c.FreeBusys, fbs...)
+	}
+}
+
+// WithAvailabilities добавляет VAVAILABILITY (RFC 7953) в календарь.
+func WithAvailabilities(availabilities ...model.Availability) CalendarOption {
+	return func(c *model.Calendar) {
+		c.Availabilities = append(c.Availabilities, availabilities...)
 	}
 }
 

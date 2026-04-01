@@ -1,0 +1,10 @@
+begin:vcalendar
+version:2.0
+prodid:-//Test//EN
+begin:vevent
+uid:case-test@example.com
+dtstamp:20231024T120000Z
+dtstart:20231025T090000Z
+summary:Case Test
+end:vevent
+end:vcalendar

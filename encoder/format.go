@@ -5,8 +5,53 @@ import (
 	"strings"
 	"time"
 
-	"gitverse.ru/cloudcoder/ical/model"
+	"github.com/mscloudx/ical/model"
 )
+
+// --------------------------------------------------------------------------
+// Экранирование TEXT-значений (RFC 5545 §3.3.11)
+// --------------------------------------------------------------------------
+
+// escapeTextGrowExtra — запас роста буфера при наличии спецсимволов.
+const escapeTextGrowExtra = 8
+
+// escapeText экранирует TEXT-значение для вывода в iCalendar.
+//
+// Правила:
+//   - \ → \\
+//   - ; → \;
+//   - , → \,
+//   - новая строка (\n или \r\n) → \n
+//
+// Если в строке нет спецсимволов — возвращает оригинал без аллокаций.
+func escapeText(s string) string {
+	if !strings.ContainsAny(s, "\\\n\r;,") {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s) + escapeTextGrowExtra)
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			sb.WriteString(`\\`)
+		case ';':
+			sb.WriteString(`\;`)
+		case ',':
+			sb.WriteString(`\,`)
+		case '\r':
+			// CRLF → \n (пропускаем \n следом)
+			if i+1 < len(s) && s[i+1] == '\n' {
+				i++
+			}
+			sb.WriteString(`\n`)
+		case '\n':
+			sb.WriteString(`\n`)
+		default:
+			sb.WriteByte(s[i])
+		}
+	}
+	return sb.String()
+}
 
 // --------------------------------------------------------------------------
 // Форматирование даты и времени
@@ -112,6 +157,12 @@ func formatRRule(rule *model.RecurrenceRule) string {
 	if s := rule.Freq.String(); s != "" {
 		parts = append(parts, "FREQ="+s)
 	}
+	if s := rule.RScale.String(); s != "" {
+		parts = append(parts, "RSCALE="+s)
+	}
+	if s := rule.Skip.String(); s != "" {
+		parts = append(parts, "SKIP="+s)
+	}
 	if rule.Until != nil {
 		parts = append(parts, "UNTIL="+formatDateTime(*rule.Until, false))
 	}
@@ -200,11 +251,37 @@ func formatAttendee(propName string, a *model.Attendee) model.Property {
 	if a.RSVP {
 		p.Params = append(p.Params, model.Param{Name: "RSVP", Values: []string{"TRUE"}})
 	}
+	// SCHEDULE-AGENT (RFC 6638 §7.1).
+	if s := a.ScheduleAgent.String(); s != "" {
+		p.Params = append(p.Params, model.Param{Name: "SCHEDULE-AGENT", Values: []string{s}})
+	}
+	// SCHEDULE-FORCE-SEND (RFC 6638 §7.2).
+	if a.ScheduleForceSend != "" {
+		p.Params = append(p.Params, model.Param{Name: "SCHEDULE-FORCE-SEND", Values: []string{a.ScheduleForceSend}})
+	}
+	// SCHEDULE-STATUS (RFC 6638 §7.3).
+	if len(a.ScheduleStatus) > 0 {
+		p.Params = append(p.Params, model.Param{Name: "SCHEDULE-STATUS", Values: a.ScheduleStatus})
+	}
 
 	// Дополнительные параметры, которые парсер не обработал.
 	p.Params = append(p.Params, a.Params...)
 
 	return p
+}
+
+// --------------------------------------------------------------------------
+// Форматирование REQUEST-STATUS
+// --------------------------------------------------------------------------
+
+// formatRequestStatus форматирует RequestStatus в строку iCalendar.
+//
+// Формат: <код>;<описание>[;<дополнительные данные>]
+func formatRequestStatus(rs model.RequestStatus) string {
+	if rs.ExtraData != "" {
+		return rs.Code + ";" + rs.Description + ";" + rs.ExtraData
+	}
+	return rs.Code + ";" + rs.Description
 }
 
 // --------------------------------------------------------------------------
@@ -242,6 +319,12 @@ func formatRelation(rel model.Relation) model.Property {
 		p.Params = append(p.Params, model.Param{
 			Name:   "RELTYPE",
 			Values: []string{s},
+		})
+	}
+	if rel.Gap != nil {
+		p.Params = append(p.Params, model.Param{
+			Name:   "GAP",
+			Values: []string{formatDuration(*rel.Gap)},
 		})
 	}
 	return p

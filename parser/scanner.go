@@ -5,8 +5,9 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"strings"
 
-	"gitverse.ru/cloudcoder/ical/model"
+	"github.com/mscloudx/ical/model"
 )
 
 // defaultBufSize — размер буфера для чтения физических строк.
@@ -107,7 +108,7 @@ func parseContentLine(line []byte) model.Property {
 	for i < len(line) && line[i] != ';' && line[i] != ':' {
 		i++
 	}
-	p.Name = string(line[:i])
+	p.Name = strings.ToUpper(string(line[:i]))
 
 	if i >= len(line) {
 		return p
@@ -142,14 +143,14 @@ func parseParamsInto(p *model.Property, line []byte, start int) int {
 		if eqPos >= len(line) {
 			return i
 		}
-		paramName := string(line[i:eqPos])
+		paramName := strings.ToUpper(string(line[i:eqPos]))
 		i = eqPos + 1
 
 		// Парсим значения параметра (через запятую, с поддержкой кавычек).
 		var values []string
 		for {
 			val, end := parseParamValue(line, i)
-			values = append(values, val)
+			values = append(values, decodeParamValueRFC6868(val))
 			i = end
 			if i >= len(line) || line[i] != ',' {
 				break
@@ -188,4 +189,79 @@ func parseParamValue(line []byte, start int) (value string, end int) {
 		end++
 	}
 	return string(line[start:end]), end
+}
+
+// unescapeText де-экранирует TEXT-значение (RFC 5545 §3.3.11).
+//
+// Правила:
+//   - \n или \N → символ новой строки (\n)
+//   - \, → запятая
+//   - \; → точка с запятой
+//   - \\ → обратный слеш
+//
+// Неизвестные последовательности остаются без изменений.
+// Если в строке нет '\' — возвращает оригинал без аллокаций.
+func unescapeText(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 >= len(s) {
+			sb.WriteByte(s[i])
+			continue
+		}
+		next := s[i+1]
+		switch next {
+		case 'n', 'N':
+			sb.WriteByte('\n')
+			i++
+		case ',':
+			sb.WriteByte(',')
+			i++
+		case ';':
+			sb.WriteByte(';')
+			i++
+		case '\\':
+			sb.WriteByte('\\')
+			i++
+		default:
+			sb.WriteByte('\\')
+		}
+	}
+	return sb.String()
+}
+
+// decodeParamValueRFC6868 декодирует ^-escape для параметров (RFC 6868).
+// ^n -> перевод строки, ^^ -> ^, ^' -> ".
+// Неизвестные последовательности остаются без изменений.
+func decodeParamValueRFC6868(value string) string {
+	if !strings.Contains(value, "^") {
+		return value
+	}
+	var sb strings.Builder
+	sb.Grow(len(value))
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		if ch != '^' || i+1 >= len(value) {
+			sb.WriteByte(ch)
+			continue
+		}
+		next := value[i+1]
+		switch next {
+		case 'n', 'N':
+			sb.WriteByte('\n')
+			i++
+		case '^':
+			sb.WriteByte('^')
+			i++
+		case '\'':
+			sb.WriteByte('"')
+			i++
+		default:
+			sb.WriteByte('^')
+		}
+	}
+	return sb.String()
 }
