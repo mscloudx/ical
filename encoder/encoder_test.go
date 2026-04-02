@@ -180,7 +180,7 @@ func (s *EncoderSuite) TestEncode_EventWithAllFields() {
 	s.Contains(actual, "DTSTART:20231024T120000Z")
 	s.Contains(actual, "DTEND:20231024T140000Z")
 	s.Contains(actual, "STATUS:CONFIRMED")
-	s.Contains(actual, "ORGANIZER;CN=\"Organizer Name\":mailto:org@example.com")
+	s.Contains(actual, "ORGANIZER;CN=Organizer Name:mailto:org@example.com")
 	s.Contains(actual, "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=ACCEPTED:mailto:att@example.com")
 	s.Contains(actual, "RRULE:FREQ=WEEKLY;COUNT=5;BYDAY=MO")
 	s.Contains(actual, "END:VEVENT")
@@ -436,11 +436,10 @@ func (s *EncoderSuite) TestEncode_RFC6868ParameterValueEncoding() {
 
 	// Assert
 	s.Require().NoError(err)
-	s.Contains(actual, "CN=\"George Herman ^'Babe^' Ruth\"")
+	s.Contains(actual, "CN=George Herman ^'Babe^' Ruth")
 	s.Contains(actual, "X-NOTE=Line1^nLine2")
-	s.Contains(actual, "X-CARETS=\"Hat")
-	s.Contains(actual, "^^Carets^^\"")
-	s.Contains(actual, "X-RAW=\"Keep ^^x here\"")
+	s.Contains(actual, "X-CARETS=Hat ^^Carets^^")
+	s.Contains(actual, "X-RAW=Keep ^^x here")
 }
 
 func (s *EncoderSuite) TestEncode_RFC7529RScaleAndSkip() {

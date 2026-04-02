@@ -906,8 +906,12 @@ func (w *icsWriter) writePeriodList(periods []model.Period) {
 }
 
 // needsQuoting проверяет, нужно ли оборачивать значение параметра в кавычки.
+//
+// RFC 5545 §3.1 требует кавычки только при наличии DQUOTE-unsafe символов:
+// точка с запятой, двоеточие, запятая. Пробел (WSP) является SAFE-CHAR
+// и кавычек не требует.
 func needsQuoting(s string) bool {
-	return strings.ContainsAny(s, ";:, ")
+	return strings.ContainsAny(s, ";:,")
 }
 
 // encodeParamValueRFC6868 кодирует параметр в ^-escape (RFC 6868).
