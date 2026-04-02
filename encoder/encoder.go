@@ -174,7 +174,7 @@ func (w *icsWriter) writePropInt(name string, value int) {
 // Если loc — именованный не-UTC пояс — добавляет параметр TZID и локальный формат.
 func (w *icsWriter) writePropDateTime(name string, t time.Time, allDay bool) {
 	if allDay {
-		w.writePropStr(name, t.Format("20060102"))
+		w.writeLine(name + ";VALUE=DATE:" + t.Format("20060102"))
 		return
 	}
 	loc := t.Location()
@@ -271,7 +271,7 @@ func (w *icsWriter) writeEvent(e *model.Event) {
 	w.writePropDateTime("DTSTART", e.DTStart, e.AllDay)
 
 	if e.DTEnd != nil {
-		w.writePropDateTime("DTEND", *e.DTEnd, false)
+		w.writePropDateTime("DTEND", *e.DTEnd, e.AllDay)
 	}
 	if e.Duration != nil {
 		w.writePropStr("DURATION", formatDuration(*e.Duration))
