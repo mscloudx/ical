@@ -167,6 +167,13 @@ func (w *icsWriter) writePropInt(name string, value int) {
 	w.writeLine(fmt.Sprintf("%s:%d", name, value))
 }
 
+// writeDTStamp записывает DTSTAMP, только если значение не нулевое.
+func (w *icsWriter) writeDTStamp(t time.Time) {
+	if !t.IsZero() {
+		w.writePropStr("DTSTAMP", formatDateTime(t, false))
+	}
+}
+
 // writePropDateTime записывает свойство даты/времени с поддержкой TZID.
 //
 // Если allDay=true — формат VALUE=DATE без TZID.
@@ -267,7 +274,7 @@ func (w *icsWriter) writeEvent(e *model.Event) {
 	w.writeBegin("VEVENT")
 
 	w.writePropStr("UID", e.UID)
-	w.writePropStr("DTSTAMP", formatDateTime(e.DTStamp, false))
+	w.writeDTStamp(e.DTStamp)
 	w.writePropDateTime("DTSTART", e.DTStart, e.AllDay)
 
 	if e.DTEnd != nil {
@@ -371,7 +378,7 @@ func (w *icsWriter) writeTodo(t *model.Todo) {
 	w.writeBegin("VTODO")
 
 	w.writePropStr("UID", t.UID)
-	w.writePropStr("DTSTAMP", formatDateTime(t.DTStamp, false))
+	w.writeDTStamp(t.DTStamp)
 
 	if t.DTStart != nil {
 		w.writePropDateTime("DTSTART", *t.DTStart, t.AllDay)
@@ -480,7 +487,7 @@ func (w *icsWriter) writeJournal(j *model.Journal) {
 	w.writeBegin("VJOURNAL")
 
 	w.writePropStr("UID", j.UID)
-	w.writePropStr("DTSTAMP", formatDateTime(j.DTStamp, false))
+	w.writeDTStamp(j.DTStamp)
 
 	if j.DTStart != nil {
 		w.writePropDateTime("DTSTART", *j.DTStart, j.AllDay)
@@ -570,7 +577,7 @@ func (w *icsWriter) writeFreeBusy(fb *model.FreeBusy) {
 	w.writeBegin("VFREEBUSY")
 
 	w.writePropStr("UID", fb.UID)
-	w.writePropStr("DTSTAMP", formatDateTime(fb.DTStamp, false))
+	w.writeDTStamp(fb.DTStamp)
 
 	if fb.DTStart != nil {
 		w.writePropDateTime("DTSTART", *fb.DTStart, false)
@@ -614,7 +621,7 @@ func (w *icsWriter) writeAvailability(a *model.Availability) {
 	w.writeBegin("VAVAILABILITY")
 
 	w.writePropStr("UID", a.UID)
-	w.writePropStr("DTSTAMP", formatDateTime(a.DTStamp, false))
+	w.writeDTStamp(a.DTStamp)
 
 	if a.DTStart != nil {
 		w.writePropDateTime("DTSTART", *a.DTStart, false)
@@ -675,7 +682,7 @@ func (w *icsWriter) writeAvailable(a *model.Available) {
 	w.writeBegin("AVAILABLE")
 
 	w.writePropStr("UID", a.UID)
-	w.writePropStr("DTSTAMP", formatDateTime(a.DTStamp, false))
+	w.writeDTStamp(a.DTStamp)
 	w.writePropDateTime("DTSTART", a.DTStart, false)
 
 	if a.DTEnd != nil {
@@ -747,7 +754,14 @@ func (w *icsWriter) writeTzTransition(name string, tr *model.TzTransition) {
 	for i := range tr.RRules {
 		w.writePropStr("RRULE", formatRRule(&tr.RRules[i]))
 	}
-	w.writeDateTimeList("RDATE", tr.RDates)
+	// VTIMEZONE RDATEs must be local time (no 'Z'), per RFC 5545 §3.6.5.
+	if len(tr.RDates) > 0 {
+		parts := make([]string, len(tr.RDates))
+		for i, d := range tr.RDates {
+			parts[i] = formatDateTimeLocal(d)
+		}
+		w.writePropStr("RDATE", strings.Join(parts, ","))
+	}
 
 	w.writeProperties(tr.XProps)
 	w.writeProperties(tr.IanaProps)
@@ -823,6 +837,23 @@ func (w *icsWriter) writeAttachment(a *model.Attachment) {
 	if a.MIMEType != "" {
 		sb.WriteString(";FMTTYPE=")
 		sb.WriteString(a.MIMEType)
+	}
+	for _, param := range a.Params {
+		sb.WriteByte(';')
+		sb.WriteString(param.Name)
+		sb.WriteByte('=')
+		for i, v := range param.Values {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			if needsQuoting(v) {
+				sb.WriteByte('"')
+				sb.WriteString(v)
+				sb.WriteByte('"')
+			} else {
+				sb.WriteString(v)
+			}
+		}
 	}
 	if len(a.Data) > 0 {
 		sb.WriteString(";ENCODING=BASE64;VALUE=BINARY:")

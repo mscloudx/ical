@@ -1517,6 +1517,15 @@ func parseAttachment(p model.Property) (model.Attachment, error) {
 	a := model.Attachment{
 		MIMEType: p.ParamValue("FMTTYPE"),
 	}
+	// Collect extra params (all except FMTTYPE, ENCODING, VALUE).
+	for _, param := range p.Params {
+		switch strings.ToUpper(param.Name) {
+		case "FMTTYPE", "ENCODING", "VALUE":
+			// handled separately
+		default:
+			a.Params = append(a.Params, param)
+		}
+	}
 	if strings.EqualFold(p.ParamValue("ENCODING"), "BASE64") {
 		// Удаляем пробелы, возможные после line-unfolding.
 		raw := strings.ReplaceAll(p.Value, " ", "")

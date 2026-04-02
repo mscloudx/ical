@@ -11,7 +11,7 @@ func (w *icsWriter) writeParticipant(p *model.Participant) {
 	w.writeBegin("PARTICIPANT")
 
 	w.writePropStr("UID", p.UID)
-	w.writePropStr("DTSTAMP", formatDateTime(p.DTStamp, false))
+	w.writeDTStamp(p.DTStamp)
 
 	if p.ParticipantType != "" {
 		w.writePropStr("PARTICIPANT-TYPE", p.ParticipantType)
@@ -75,7 +75,7 @@ func (w *icsWriter) writeLocationComponent(l *model.LocationComponent) {
 	w.writeBegin("LOCATION")
 
 	w.writePropStr("UID", l.UID)
-	w.writePropStr("DTSTAMP", formatDateTime(l.DTStamp, false))
+	w.writeDTStamp(l.DTStamp)
 	w.writePropStr("NAME", l.Name)
 	w.writePropStr("DESCRIPTION", l.Description)
 	w.writePropStr("GEO", l.Geo)
@@ -120,7 +120,7 @@ func (w *icsWriter) writeResourceComponent(r *model.ResourceComponent) {
 	w.writeBegin("RESOURCE")
 
 	w.writePropStr("UID", r.UID)
-	w.writePropStr("DTSTAMP", formatDateTime(r.DTStamp, false))
+	w.writeDTStamp(r.DTStamp)
 	w.writePropStr("NAME", r.Name)
 	w.writePropStr("DESCRIPTION", r.Description)
 

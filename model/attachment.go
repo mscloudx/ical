@@ -15,4 +15,7 @@ type Attachment struct {
 	// MIMEType — MIME-тип содержимого (параметр FMTTYPE).
 	// Например: "application/pdf", "image/png".
 	MIMEType string
+	// Params — дополнительные параметры свойства ATTACH (например, FILENAME, MANAGED-ID, SIZE).
+	// Хранит все параметры кроме FMTTYPE и ENCODING/VALUE.
+	Params []Param
 }
