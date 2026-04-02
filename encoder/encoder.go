@@ -167,6 +167,30 @@ func (w *icsWriter) writePropInt(name string, value int) {
 	w.writeLine(fmt.Sprintf("%s:%d", name, value))
 }
 
+// writePropDateTime записывает свойство даты/времени с поддержкой TZID.
+//
+// Если allDay=true — формат VALUE=DATE без TZID.
+// Если время в UTC (loc==time.UTC) — формат с суффиксом 'Z' без TZID.
+// Если loc — именованный не-UTC пояс — добавляет параметр TZID и локальный формат.
+func (w *icsWriter) writePropDateTime(name string, t time.Time, allDay bool) {
+	if allDay {
+		w.writePropStr(name, t.Format("20060102"))
+		return
+	}
+	loc := t.Location()
+	if loc == nil || loc == time.UTC {
+		w.writePropStr(name, t.Format("20060102T150405Z"))
+		return
+	}
+	tzName := loc.String()
+	if tzName == "UTC" {
+		w.writePropStr(name, t.Format("20060102T150405Z"))
+		return
+	}
+	// Именованный не-UTC пояс: DTSTART;TZID=America/New_York:20231025T090000
+	w.writeLine(name + ";TZID=" + tzName + ":" + t.Format("20060102T150405"))
+}
+
 // writeBegin записывает BEGIN:COMPONENT.
 func (w *icsWriter) writeBegin(component string) {
 	w.writeLine("BEGIN:" + component)
@@ -244,10 +268,10 @@ func (w *icsWriter) writeEvent(e *model.Event) {
 
 	w.writePropStr("UID", e.UID)
 	w.writePropStr("DTSTAMP", formatDateTime(e.DTStamp, false))
-	w.writePropStr("DTSTART", formatDateTime(e.DTStart, e.AllDay))
+	w.writePropDateTime("DTSTART", e.DTStart, e.AllDay)
 
 	if e.DTEnd != nil {
-		w.writePropStr("DTEND", formatDateTime(*e.DTEnd, false))
+		w.writePropDateTime("DTEND", *e.DTEnd, false)
 	}
 	if e.Duration != nil {
 		w.writePropStr("DURATION", formatDuration(*e.Duration))
@@ -286,7 +310,7 @@ func (w *icsWriter) writeEvent(e *model.Event) {
 		w.writePropInt("SEQUENCE", e.Sequence)
 	}
 	if e.RecurrenceID != nil {
-		w.writePropStr("RECURRENCE-ID", formatDateTime(*e.RecurrenceID, false))
+		w.writePropDateTime("RECURRENCE-ID", *e.RecurrenceID, false)
 	}
 
 	// Recurrence.
@@ -350,10 +374,10 @@ func (w *icsWriter) writeTodo(t *model.Todo) {
 	w.writePropStr("DTSTAMP", formatDateTime(t.DTStamp, false))
 
 	if t.DTStart != nil {
-		w.writePropStr("DTSTART", formatDateTime(*t.DTStart, t.AllDay))
+		w.writePropDateTime("DTSTART", *t.DTStart, t.AllDay)
 	}
 	if t.Due != nil {
-		w.writePropStr("DUE", formatDateTime(*t.Due, model.IsDateOnly(*t.Due)))
+		w.writePropDateTime("DUE", *t.Due, model.IsDateOnly(*t.Due))
 	}
 	if t.Duration != nil {
 		w.writePropStr("DURATION", formatDuration(*t.Duration))
@@ -399,7 +423,7 @@ func (w *icsWriter) writeTodo(t *model.Todo) {
 		w.writePropInt("SEQUENCE", t.Sequence)
 	}
 	if t.RecurrenceID != nil {
-		w.writePropStr("RECURRENCE-ID", formatDateTime(*t.RecurrenceID, false))
+		w.writePropDateTime("RECURRENCE-ID", *t.RecurrenceID, false)
 	}
 
 	for i := range t.RRules {
@@ -459,7 +483,7 @@ func (w *icsWriter) writeJournal(j *model.Journal) {
 	w.writePropStr("DTSTAMP", formatDateTime(j.DTStamp, false))
 
 	if j.DTStart != nil {
-		w.writePropStr("DTSTART", formatDateTime(*j.DTStart, j.AllDay))
+		w.writePropDateTime("DTSTART", *j.DTStart, j.AllDay)
 	}
 
 	w.writePropText("SUMMARY", j.Summary)
@@ -549,10 +573,10 @@ func (w *icsWriter) writeFreeBusy(fb *model.FreeBusy) {
 	w.writePropStr("DTSTAMP", formatDateTime(fb.DTStamp, false))
 
 	if fb.DTStart != nil {
-		w.writePropStr("DTSTART", formatDateTime(*fb.DTStart, false))
+		w.writePropDateTime("DTSTART", *fb.DTStart, false)
 	}
 	if fb.DTEnd != nil {
-		w.writePropStr("DTEND", formatDateTime(*fb.DTEnd, false))
+		w.writePropDateTime("DTEND", *fb.DTEnd, false)
 	}
 
 	if fb.Organizer != nil {
@@ -593,7 +617,7 @@ func (w *icsWriter) writeAvailability(a *model.Availability) {
 	w.writePropStr("DTSTAMP", formatDateTime(a.DTStamp, false))
 
 	if a.DTStart != nil {
-		w.writePropStr("DTSTART", formatDateTime(*a.DTStart, false))
+		w.writePropDateTime("DTSTART", *a.DTStart, false)
 	}
 
 	if a.DTEnd != nil && a.Duration != nil {
@@ -602,7 +626,7 @@ func (w *icsWriter) writeAvailability(a *model.Availability) {
 	}
 
 	if a.DTEnd != nil {
-		w.writePropStr("DTEND", formatDateTime(*a.DTEnd, false))
+		w.writePropDateTime("DTEND", *a.DTEnd, false)
 	} else if a.Duration != nil {
 		w.writePropStr("DURATION", formatDuration(*a.Duration))
 	}
@@ -652,10 +676,10 @@ func (w *icsWriter) writeAvailable(a *model.Available) {
 
 	w.writePropStr("UID", a.UID)
 	w.writePropStr("DTSTAMP", formatDateTime(a.DTStamp, false))
-	w.writePropStr("DTSTART", formatDateTime(a.DTStart, false))
+	w.writePropDateTime("DTSTART", a.DTStart, false)
 
 	if a.DTEnd != nil {
-		w.writePropStr("DTEND", formatDateTime(*a.DTEnd, false))
+		w.writePropDateTime("DTEND", *a.DTEnd, false)
 	} else if a.Duration != nil {
 		w.writePropStr("DURATION", formatDuration(*a.Duration))
 	}
@@ -818,8 +842,21 @@ func (w *icsWriter) writeProperties(props []model.Property) {
 }
 
 // writeDateTimeList записывает список дат через запятую.
+// Если даты имеют не-UTC именованный часовой пояс — добавляет параметр TZID.
+// Все даты в списке должны иметь одинаковый часовой пояс (RFC 5545 §3.8.5.2).
 func (w *icsWriter) writeDateTimeList(name string, dates []time.Time) {
 	if len(dates) == 0 {
+		return
+	}
+	// Определяем часовой пояс по первой дате.
+	loc := dates[0].Location()
+	if loc != nil && loc != time.UTC && loc.String() != "UTC" {
+		// Именованный не-UTC пояс: NAME;TZID=<tz>:date1,date2,...
+		parts := make([]string, len(dates))
+		for i, d := range dates {
+			parts[i] = d.Format("20060102T150405")
+		}
+		w.writeLine(name + ";TZID=" + loc.String() + ":" + strings.Join(parts, ","))
 		return
 	}
 	parts := make([]string, len(dates))

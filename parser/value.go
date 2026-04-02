@@ -317,23 +317,23 @@ func parseRRule(s string, loc *time.Location) (model.RecurrenceRule, error) {
 				return rule, errors.Wrapf(ErrInvalidRRule, "INTERVAL=%s: %s", val, err.Error())
 			}
 		case "BYSECOND":
-			rule.BySecond, err = parseIntListRange(val, 0, 60) // RFC 5545 §3.3.10
+			rule.BySecond, err = parseIntListRange(val, 0, 60) //nolint:mnd // RFC 5545 §3.3.10: 0..60
 		case "BYMINUTE":
-			rule.ByMinute, err = parseIntListRange(val, 0, 59)
+			rule.ByMinute, err = parseIntListRange(val, 0, 59) //nolint:mnd // 0..59
 		case "BYHOUR":
-			rule.ByHour, err = parseIntListRange(val, 0, 23)
+			rule.ByHour, err = parseIntListRange(val, 0, 23) //nolint:mnd // 0..23
 		case "BYDAY":
 			rule.ByDay, err = parseByDay(val)
 		case "BYMONTHDAY":
-			rule.ByMonthDay, err = parseIntListNonZeroRange(val, 31) // ±1..31
+			rule.ByMonthDay, err = parseIntListNonZeroRange(val, 31) //nolint:mnd // ±1..31
 		case "BYYEARDAY":
-			rule.ByYearDay, err = parseIntListNonZeroRange(val, 366) // ±1..366
+			rule.ByYearDay, err = parseIntListNonZeroRange(val, 366) //nolint:mnd // ±1..366
 		case "BYWEEKNO":
-			rule.ByWeekNo, err = parseIntListNonZeroRange(val, 53) // ±1..53
+			rule.ByWeekNo, err = parseIntListNonZeroRange(val, 53) //nolint:mnd // ±1..53
 		case "BYMONTH":
-			rule.ByMonth, err = parseIntListRange(val, 1, 12)
+			rule.ByMonth, err = parseIntListRange(val, 1, 12) //nolint:mnd // 1..12
 		case "BYSETPOS":
-			rule.BySetPos, err = parseIntListNonZeroRange(val, 366) // ±1..366
+			rule.BySetPos, err = parseIntListNonZeroRange(val, 366) //nolint:mnd // ±1..366
 		case "WKST":
 			rule.WkSt = parseWeekday(val)
 		}
@@ -538,10 +538,14 @@ func parseScheduleAgent(s string) model.ScheduleAgent {
 
 // parseTrigger парсит значение TRIGGER с учётом параметров.
 // По умолчанию — Duration. Если VALUE=DATE-TIME — абсолютное время.
+// Параметр RELATED=END сохраняется в Trigger.Related.
 func parseTrigger(params []model.Param, value string) (model.Trigger, error) {
-	// Проверяем, задан ли VALUE=DATE-TIME.
+	var related string
+
+	// Читаем параметры VALUE и RELATED.
 	for _, param := range params {
-		if strings.EqualFold(param.Name, "VALUE") && len(param.Values) > 0 {
+		switch {
+		case strings.EqualFold(param.Name, "VALUE") && len(param.Values) > 0:
 			if strings.EqualFold(param.Values[0], "DATE-TIME") {
 				t, _, err := parseDateTime(value, nil)
 				if err != nil {
@@ -549,6 +553,8 @@ func parseTrigger(params []model.Param, value string) (model.Trigger, error) {
 				}
 				return model.Trigger{DateTime: &t}, nil
 			}
+		case strings.EqualFold(param.Name, "RELATED") && len(param.Values) > 0:
+			related = strings.ToUpper(param.Values[0])
 		}
 	}
 
@@ -557,7 +563,7 @@ func parseTrigger(params []model.Param, value string) (model.Trigger, error) {
 	if err != nil {
 		return model.Trigger{}, errors.Wrap(err, "TRIGGER duration")
 	}
-	return model.Trigger{Duration: &d}, nil
+	return model.Trigger{Duration: &d, Related: related}, nil
 }
 
 // --------------------------------------------------------------------------
@@ -794,14 +800,14 @@ func parseIntList(s string) ([]int, error) {
 
 // parseIntListRange парсит список целых чисел и проверяет, что каждое значение
 // входит в диапазон [min, max]. Используется для RRULE-полей с ограниченным диапазоном.
-func parseIntListRange(s string, min, max int) ([]int, error) {
+func parseIntListRange(s string, lo, hi int) ([]int, error) {
 	vals, err := parseIntList(s)
 	if err != nil {
 		return nil, err
 	}
 	for _, v := range vals {
-		if v < min || v > max {
-			return nil, errors.Wrapf(ErrInvalidRRule, "value %d out of range [%d, %d]", v, min, max)
+		if v < lo || v > hi {
+			return nil, errors.Wrapf(ErrInvalidRRule, "value %d out of range [%d, %d]", v, lo, hi)
 		}
 	}
 	return vals, nil

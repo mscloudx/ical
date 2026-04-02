@@ -357,7 +357,12 @@ func setEventProp(e *model.Event, p model.Property, tzCtx *perCalendarTZContext)
 	case "TRANSP":
 		e.Transparency = parseTransparency(p.Value)
 	case propCLASS:
-		e.Classification = parseClassification(p.Value)
+		cls := parseClassification(p.Value)
+		if cls == model.ClassUnspecified && p.Value != "" {
+			e.IanaProps = append(e.IanaProps, p)
+		} else {
+			e.Classification = cls
+		}
 	case propORGANIZER:
 		a := parseAttendee(p.Params, p.Value)
 		e.Organizer = &a
@@ -863,7 +868,12 @@ func setTodoProp(t *model.Todo, p model.Property, tzCtx *perCalendarTZContext) e
 	case propSTATUS:
 		t.Status = parseStatus(p.Value)
 	case propCLASS:
-		t.Classification = parseClassification(p.Value)
+		cls := parseClassification(p.Value)
+		if cls == model.ClassUnspecified && p.Value != "" {
+			t.IanaProps = append(t.IanaProps, p)
+		} else {
+			t.Classification = cls
+		}
 	case propORGANIZER:
 		a := parseAttendee(p.Params, p.Value)
 		t.Organizer = &a
@@ -1023,7 +1033,12 @@ func setJournalProp(j *model.Journal, p model.Property, tzCtx *perCalendarTZCont
 	case propSTATUS:
 		j.Status = parseStatus(p.Value)
 	case propCLASS:
-		j.Classification = parseClassification(p.Value)
+		cls := parseClassification(p.Value)
+		if cls == model.ClassUnspecified && p.Value != "" {
+			j.IanaProps = append(j.IanaProps, p)
+		} else {
+			j.Classification = cls
+		}
 	case propORGANIZER:
 		a := parseAttendee(p.Params, p.Value)
 		j.Organizer = &a

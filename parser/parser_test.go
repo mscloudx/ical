@@ -1548,7 +1548,6 @@ func (s *ParserSuite) TestRRuleOutOfRangeBounds() {
 		{"BYSETPOS = 0", "FREQ=MONTHLY;BYDAY=MO;BYSETPOS=0"},
 	}
 	for _, tc := range tests {
-		tc := tc
 		s.Run(tc.name, func() {
 			ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n" +
 				"BEGIN:VEVENT\r\nUID:test@test\r\nDTSTAMP:20230101T000000Z\r\n" +

@@ -299,6 +299,12 @@ func formatTrigger(t model.Trigger) model.Property {
 		})
 		p.Value = formatDateTime(*t.DateTime, false)
 	} else if t.Duration != nil {
+		if t.Related == "END" {
+			p.Params = append(p.Params, model.Param{
+				Name:   "RELATED",
+				Values: []string{"END"},
+			})
+		}
 		p.Value = formatDuration(*t.Duration)
 	}
 

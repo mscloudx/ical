@@ -138,8 +138,8 @@ func (c *syncCustomTZCache) loadOrStore(fp string, vtz *vtimezoneTransitions) *v
 // mutated, so they are safe to read from multiple goroutines without locking.
 type vtimezoneTransitions struct {
 	tzid        string
-	transitions []tzTransition        // sorted ascending by dtstart
-	fixedLoc    *time.Location        // non-nil when offset is constant for all time
+	transitions []tzTransition         // sorted ascending by dtstart
+	fixedLoc    *time.Location         // non-nil when offset is constant for all time
 	offsetLocs  map[int]*time.Location // offset (seconds) → pre-built FixedZone
 }
 
@@ -191,7 +191,7 @@ func (v *vtimezoneTransitions) locationAt(wallTime time.Time) *time.Location {
 	// For larger VTIMEZONEs the slice escapes to the heap, same as before.
 	var stackBuf [8]tzCandidate
 	var candidates []tzCandidate
-	if need := len(v.transitions) * 4; need <= len(stackBuf) {
+	if need := len(v.transitions) * 4; need <= len(stackBuf) { //nolint:mnd // 4 candidates per transition: STANDARD+DAYLIGHT × start/end
 		candidates = stackBuf[:0]
 	} else {
 		candidates = make([]tzCandidate, 0, need)

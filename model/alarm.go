@@ -65,4 +65,8 @@ type Trigger struct {
 	Duration *time.Duration
 	// DateTime — абсолютная дата и время срабатывания.
 	DateTime *time.Time
+	// Related — к чему привязан Duration: "START" (по умолчанию) или "END".
+	// Задаётся параметром RELATED=END. Пустая строка означает START.
+	// RFC 5545 §3.2.14.
+	Related string
 }

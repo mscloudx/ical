@@ -2,12 +2,14 @@ package encoder_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mscloudx/ical/diff"
 	"github.com/mscloudx/ical/encoder"
 	"github.com/mscloudx/ical/model"
 	"github.com/mscloudx/ical/parser"
@@ -101,7 +103,7 @@ func (s *EncoderSuite) TestRoundTrip_RDatePeriods() {
 				DTStamp: time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
 				DTStart: start,
 				RDatePeriods: []model.Period{
-					{Start: start, End: end},                    // start/end
+					{Start: start, End: end},                          // start/end
 					{Start: start.Add(24 * time.Hour), Duration: dur}, // start/duration
 				},
 			},
@@ -626,4 +628,151 @@ func (s *EncoderSuite) TestEncode_LineFoldingRFC5545Compliance() {
 		s.LessOrEqual(len([]byte(line)), 75,
 			"physical line exceeds 75 octets (RFC 5545 §3.1): %q", line)
 	}
+}
+
+// --------------------------------------------------------------------------
+// Универсальные Round-Trip тесты с использованием пакета diff
+// --------------------------------------------------------------------------
+
+// assertRoundTripDiff выполняет полный round-trip с семантическим сравнением
+// через пакет diff: parse → encode → re-parse → diff.Compare.
+func (s *EncoderSuite) assertRoundTripDiff(relPath string) {
+	s.T().Helper()
+	path := filepath.Join(s.examplesDir, relPath)
+	data, err := os.ReadFile(path)
+	s.Require().NoError(err, "read file %s", path)
+
+	// 1. Парсим исходный файл.
+	// Некоторые файлы в 00_testing/ намеренно содержат ошибки — пропускаем их.
+	original, err := parser.ParseBytes(data)
+	if err != nil {
+		s.T().Skipf("skipping intentionally invalid file %s: %v", path, err)
+		return
+	}
+
+	// 2. Кодируем.
+	encoded, err := encoder.Marshal(original)
+	s.Require().NoError(err, "encode %s", path)
+
+	// 3. Парсим кодированный результат.
+	roundTripped, err := parser.ParseBytes(encoded)
+	s.Require().NoError(err, "parse encoded %s", path)
+
+	// 4. Семантическое сравнение.
+	issues := diff.Compare(original, roundTripped)
+	if len(issues) > 0 {
+		msgs := make([]string, len(issues))
+		for i, iss := range issues {
+			msgs[i] = fmt.Sprintf("  - %s", iss)
+		}
+		s.Fail("round-trip differences in " + relPath + ":\n" + strings.Join(msgs, "\n"))
+	}
+}
+
+// TestRoundTripDiff_AllExamples запускает round-trip для всех .ics файлов
+// в папке examples/ical/, используя семантическое сравнение через diff.Compare.
+func (s *EncoderSuite) TestRoundTripDiff_AllExamples() {
+	var icsFiles []string
+	err := filepath.Walk(s.examplesDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(path, ".ics") {
+			rel, relErr := filepath.Rel(s.examplesDir, path)
+			if relErr == nil {
+				icsFiles = append(icsFiles, rel)
+			}
+		}
+		return nil
+	})
+	s.Require().NoError(err)
+	s.Require().NotEmpty(icsFiles, "no .ics files found in %s", s.examplesDir)
+
+	for _, f := range icsFiles {
+		// capture
+		s.Run(f, func() {
+			s.assertRoundTripDiff(f)
+		})
+	}
+}
+
+// TestRoundTripDiff_Trigger проверяет что TRIGGER;RELATED=END корректно проходит round-trip.
+func (s *EncoderSuite) TestRoundTripDiff_Trigger() {
+	dur := 5 * time.Minute
+	cal := &model.Calendar{
+		Version: "2.0",
+		ProdID:  "-//Test//EN",
+		Events: []model.Event{
+			{
+				UID:     "trigger-related-001@test",
+				DTStamp: time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
+				DTStart: time.Date(2023, 6, 1, 10, 0, 0, 0, time.UTC),
+				Alarms: []model.Alarm{
+					{
+						Action: model.ActionAudio,
+						Trigger: model.Trigger{
+							Duration: &dur,
+							Related:  "END",
+						},
+					},
+					{
+						Action: model.ActionDisplay,
+						Trigger: model.Trigger{
+							Duration: &dur,
+							// Related empty = START (default)
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Act: encode → parse
+	encoded, err := encoder.Marshal(cal)
+	s.Require().NoError(err)
+
+	roundTripped, err := parser.ParseBytes(encoded)
+	s.Require().NoError(err)
+
+	// Assert
+	s.Require().Len(roundTripped.Events, 1)
+	alarms := roundTripped.Events[0].Alarms
+	s.Require().Len(alarms, 2)
+	s.Equal("END", alarms[0].Trigger.Related, "RELATED=END must survive round-trip")
+	s.Empty(alarms[1].Trigger.Related, "default START: Related must be empty")
+}
+
+// TestRoundTripDiff_TZID проверяет что DTSTART с TZID корректно проходит round-trip.
+func (s *EncoderSuite) TestRoundTripDiff_TZID() {
+	loc, err := time.LoadLocation("America/New_York")
+	s.Require().NoError(err)
+
+	dtStart := time.Date(2023, 10, 25, 9, 0, 0, 0, loc)
+	cal := &model.Calendar{
+		Version: "2.0",
+		ProdID:  "-//Test//EN",
+		Events: []model.Event{
+			{
+				UID:     "tzid-event-001@test",
+				DTStamp: time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC),
+				DTStart: dtStart,
+			},
+		},
+	}
+
+	// Act
+	encoded, err := encoder.Marshal(cal)
+	s.Require().NoError(err)
+
+	// TZID param must be present in encoded output.
+	s.Contains(string(encoded), "DTSTART;TZID=America/New_York:")
+
+	roundTripped, err := parser.ParseBytes(encoded)
+	s.Require().NoError(err)
+
+	// Assert: DTStart must be equal after round-trip.
+	s.Require().Len(roundTripped.Events, 1)
+	s.True(dtStart.Equal(roundTripped.Events[0].DTStart),
+		"DTStart mismatch: got %v, want %v",
+		roundTripped.Events[0].DTStart, dtStart)
 }
