@@ -56,7 +56,7 @@ var (
 	// ErrNilReader возвращается при передаче nil в Parse или ParseWithClose.
 	ErrNilReader = errors.New("nil reader")
 
-	// ErrMissingUID возвращается, если VEVENT не содержит обязательного свойства UID.
-	// RFC 5545 §3.6.1: UID является обязательным свойством компонента VEVENT.
-	ErrMissingUID = errors.New("VEVENT missing required UID property")
+	// ErrMissingUID возвращается, если компонент не содержит обязательного свойства UID.
+	// RFC 5545 §3.6.1–3.6.4: UID является обязательным для VEVENT, VTODO, VJOURNAL и VAVAILABILITY.
+	ErrMissingUID = errors.New("missing required UID property")
 )

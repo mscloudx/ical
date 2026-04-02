@@ -83,11 +83,15 @@ func (w *icsWriter) writeFolded(line string) {
 		return
 	}
 	b := []byte(line)
-	for len(b) > maxLineLen {
-		// Находим безопасную границу UTF-8 символа ≤ maxLineLen байт.
+	// Первая строка: до maxLineLen октетов.
+	// Continuation-строки: до maxLineLen-1 октетов контента, потому что ведущий
+	// пробел (fold-индикатор, RFC 5545 §3.1) занимает 1 из 75 допустимых октетов.
+	limit := maxLineLen
+	for len(b) > limit {
+		// Находим безопасную границу UTF-8 символа ≤ limit байт.
 		// utf8.RuneStart(b) истинно для ASCII (<0x80) или начального байта
 		// многобайтного символа (≥0xC0). Откат максимум на 3 байта.
-		cut := maxLineLen
+		cut := limit
 		for cut > 0 && !utf8.RuneStart(b[cut]) {
 			cut--
 		}
@@ -100,6 +104,7 @@ func (w *icsWriter) writeFolded(line string) {
 			return
 		}
 		b = b[cut:]
+		limit = maxLineLen - 1
 	}
 	_, w.err = w.w.Write(b)
 	if w.err != nil {

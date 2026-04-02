@@ -159,7 +159,7 @@ func buildCalendar(root *rawComponent) (*model.Calendar, error) {
 
 	// Обрабатываем свойства VCALENDAR.
 	for _, p := range vcal.props {
-		switch strings.ToUpper(p.Name) {
+		switch p.Name { // имя свойства нормализовано в uppercase сканером
 		case "VERSION":
 			cal.Version = p.Value
 		case "PRODID":
@@ -316,7 +316,7 @@ func buildEvent(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Event, er
 func setEventProp(e *model.Event, p model.Property, tzCtx *perCalendarTZContext) error {
 	loc := resolveTZIDCtx(p, tzCtx)
 
-	switch strings.ToUpper(p.Name) {
+	switch p.Name { // имя свойства нормализовано в uppercase сканером
 	case propUID:
 		e.UID = p.Value
 	case propDTSTAMP:
@@ -528,7 +528,7 @@ func parseVTimezoneTransitions(tzid string, raw *rawComponent) *vtimezoneTransit
 		}
 		var tr tzTransition
 		for _, p := range child.props {
-			switch strings.ToUpper(p.Name) {
+			switch p.Name { // имя свойства нормализовано в uppercase сканером
 			case propDTSTART:
 				// DTSTART в VTIMEZONE — локальное wall-clock время.
 				// Парсим как UTC для сравнения (смещение не важно здесь).
@@ -603,7 +603,7 @@ func buildTimezone(raw *rawComponent) (model.Timezone, error) {
 	var tz model.Timezone
 
 	for _, p := range raw.props {
-		switch strings.ToUpper(p.Name) {
+		switch p.Name { // имя свойства нормализовано в uppercase сканером
 		case "TZID":
 			tz.TZID = p.Value
 		default:
@@ -641,7 +641,7 @@ func buildTzTransition(raw *rawComponent) (model.TzTransition, error) {
 	var tr model.TzTransition
 
 	for _, p := range raw.props {
-		switch strings.ToUpper(p.Name) {
+		switch p.Name { // имя свойства нормализовано в uppercase сканером
 		case propDTSTART:
 			t, _, err := parseDateTime(p.Value, nil)
 			if err != nil {
@@ -684,7 +684,7 @@ func buildAlarm(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Alarm, er
 	var a model.Alarm
 
 	for _, p := range raw.props {
-		switch strings.ToUpper(p.Name) {
+		switch p.Name { // имя свойства нормализовано в uppercase сканером
 		case propUID:
 			a.UID = p.Value
 		case "ACTION":
@@ -793,6 +793,10 @@ func buildTodo(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Todo, erro
 		}
 	}
 
+	if t.UID == "" {
+		return t, ErrMissingUID
+	}
+
 	return t, nil
 }
 
@@ -802,7 +806,7 @@ func buildTodo(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Todo, erro
 func setTodoProp(t *model.Todo, p model.Property, tzCtx *perCalendarTZContext) error {
 	loc := resolveTZIDCtx(p, tzCtx)
 
-	switch strings.ToUpper(p.Name) {
+	switch p.Name { // имя свойства нормализовано в uppercase сканером
 	case propUID:
 		t.UID = p.Value
 	case propDTSTAMP:
@@ -980,6 +984,10 @@ func buildJournal(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Journal
 		}
 	}
 
+	if j.UID == "" {
+		return j, ErrMissingUID
+	}
+
 	return j, nil
 }
 
@@ -989,7 +997,7 @@ func buildJournal(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Journal
 func setJournalProp(j *model.Journal, p model.Property, tzCtx *perCalendarTZContext) error {
 	loc := resolveTZIDCtx(p, tzCtx)
 
-	switch strings.ToUpper(p.Name) {
+	switch p.Name { // имя свойства нормализовано в uppercase сканером
 	case propUID:
 		j.UID = p.Value
 	case propDTSTAMP:
@@ -1108,7 +1116,7 @@ func buildFreeBusy(raw *rawComponent, tzCtx *perCalendarTZContext) (model.FreeBu
 	for _, p := range raw.props {
 		loc := resolveTZIDCtx(p, tzCtx)
 
-		switch strings.ToUpper(p.Name) {
+		switch p.Name { // имя свойства нормализовано в uppercase сканером
 		case propUID:
 			fb.UID = p.Value
 		case propDTSTAMP:
@@ -1194,6 +1202,10 @@ func buildAvailability(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Av
 		}
 	}
 
+	if a.UID == "" {
+		return a, ErrMissingUID
+	}
+
 	return a, nil
 }
 
@@ -1201,7 +1213,7 @@ func buildAvailability(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Av
 func setAvailabilityProp(a *model.Availability, p model.Property, tzCtx *perCalendarTZContext) error {
 	loc := resolveTZIDCtx(p, tzCtx)
 
-	switch strings.ToUpper(p.Name) {
+	switch p.Name { // имя свойства нормализовано в uppercase сканером
 	case propUID:
 		a.UID = p.Value
 	case propDTSTAMP:
@@ -1309,7 +1321,7 @@ func buildAvailable(raw *rawComponent, tzCtx *perCalendarTZContext) (model.Avail
 func setAvailableProp(a *model.Available, p model.Property, tzCtx *perCalendarTZContext) error {
 	loc := resolveTZIDCtx(p, tzCtx)
 
-	switch strings.ToUpper(p.Name) {
+	switch p.Name { // имя свойства нормализовано в uppercase сканером
 	case propUID:
 		a.UID = p.Value
 	case propDTSTAMP:

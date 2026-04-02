@@ -1480,3 +1480,82 @@ func (s *ParserSuite) TestParseWithCloseNilReturnsError() {
 	_, err := parser.ParseWithClose(nil)
 	s.ErrorIs(err, parser.ErrNilReader)
 }
+
+// TestMissingUIDTodo проверяет, что VTODO без UID возвращает ErrMissingUID (P3).
+func (s *ParserSuite) TestMissingUIDTodo() {
+	// Arrange
+	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n" +
+		"BEGIN:VTODO\r\nDTSTAMP:20230101T000000Z\r\n" +
+		"SUMMARY:No UID\r\nEND:VTODO\r\n" +
+		"END:VCALENDAR\r\n"
+
+	// Act
+	_, err := parser.ParseBytes([]byte(ics))
+
+	// Assert
+	s.ErrorIs(err, parser.ErrMissingUID)
+}
+
+// TestMissingUIDJournal проверяет, что VJOURNAL без UID возвращает ErrMissingUID (P3).
+func (s *ParserSuite) TestMissingUIDJournal() {
+	// Arrange
+	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n" +
+		"BEGIN:VJOURNAL\r\nDTSTAMP:20230101T000000Z\r\n" +
+		"SUMMARY:No UID\r\nEND:VJOURNAL\r\n" +
+		"END:VCALENDAR\r\n"
+
+	// Act
+	_, err := parser.ParseBytes([]byte(ics))
+
+	// Assert
+	s.ErrorIs(err, parser.ErrMissingUID)
+}
+
+// TestMissingUIDAvailability проверяет, что VAVAILABILITY без UID возвращает ErrMissingUID (P3).
+func (s *ParserSuite) TestMissingUIDAvailability() {
+	// Arrange
+	ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n" +
+		"BEGIN:VAVAILABILITY\r\nDTSTAMP:20230101T000000Z\r\n" +
+		"DTSTART:20230601T000000Z\r\nEND:VAVAILABILITY\r\n" +
+		"END:VCALENDAR\r\n"
+
+	// Act
+	_, err := parser.ParseBytes([]byte(ics))
+
+	// Assert
+	s.ErrorIs(err, parser.ErrMissingUID)
+}
+
+// TestRRuleOutOfRangeBounds проверяет, что RRULE с выходящими за диапазон значениями
+// возвращает ErrInvalidRRule (RFC 5545 §3.3.10).
+func (s *ParserSuite) TestRRuleOutOfRangeBounds() {
+	tests := []struct {
+		name  string
+		rrule string
+	}{
+		{"BYSECOND > 60", "FREQ=DAILY;BYSECOND=61"},
+		{"BYMINUTE > 59", "FREQ=DAILY;BYMINUTE=60"},
+		{"BYHOUR > 23", "FREQ=DAILY;BYHOUR=24"},
+		{"BYMONTH > 12", "FREQ=YEARLY;BYMONTH=13"},
+		{"BYMONTH < 1", "FREQ=YEARLY;BYMONTH=0"},
+		{"BYMONTHDAY = 0", "FREQ=MONTHLY;BYMONTHDAY=0"},
+		{"BYMONTHDAY > 31", "FREQ=MONTHLY;BYMONTHDAY=32"},
+		{"BYMONTHDAY < -31", "FREQ=MONTHLY;BYMONTHDAY=-32"},
+		{"BYYEARDAY = 0", "FREQ=YEARLY;BYYEARDAY=0"},
+		{"BYYEARDAY > 366", "FREQ=YEARLY;BYYEARDAY=367"},
+		{"BYWEEKNO = 0", "FREQ=YEARLY;BYWEEKNO=0"},
+		{"BYWEEKNO > 53", "FREQ=YEARLY;BYWEEKNO=54"},
+		{"BYSETPOS = 0", "FREQ=MONTHLY;BYDAY=MO;BYSETPOS=0"},
+	}
+	for _, tc := range tests {
+		tc := tc
+		s.Run(tc.name, func() {
+			ics := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n" +
+				"BEGIN:VEVENT\r\nUID:test@test\r\nDTSTAMP:20230101T000000Z\r\n" +
+				"DTSTART:20230101T120000Z\r\nRRULE:" + tc.rrule + "\r\n" +
+				"END:VEVENT\r\nEND:VCALENDAR\r\n"
+			_, err := parser.ParseBytes([]byte(ics))
+			s.ErrorIs(err, parser.ErrInvalidRRule, "expected ErrInvalidRRule for %s", tc.rrule)
+		})
+	}
+}

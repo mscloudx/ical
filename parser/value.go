@@ -317,23 +317,23 @@ func parseRRule(s string, loc *time.Location) (model.RecurrenceRule, error) {
 				return rule, errors.Wrapf(ErrInvalidRRule, "INTERVAL=%s: %s", val, err.Error())
 			}
 		case "BYSECOND":
-			rule.BySecond, err = parseIntList(val)
+			rule.BySecond, err = parseIntListRange(val, 0, 60) // RFC 5545 §3.3.10
 		case "BYMINUTE":
-			rule.ByMinute, err = parseIntList(val)
+			rule.ByMinute, err = parseIntListRange(val, 0, 59)
 		case "BYHOUR":
-			rule.ByHour, err = parseIntList(val)
+			rule.ByHour, err = parseIntListRange(val, 0, 23)
 		case "BYDAY":
 			rule.ByDay, err = parseByDay(val)
 		case "BYMONTHDAY":
-			rule.ByMonthDay, err = parseIntList(val)
+			rule.ByMonthDay, err = parseIntListNonZeroRange(val, 31) // ±1..31
 		case "BYYEARDAY":
-			rule.ByYearDay, err = parseIntList(val)
+			rule.ByYearDay, err = parseIntListNonZeroRange(val, 366) // ±1..366
 		case "BYWEEKNO":
-			rule.ByWeekNo, err = parseIntList(val)
+			rule.ByWeekNo, err = parseIntListNonZeroRange(val, 53) // ±1..53
 		case "BYMONTH":
-			rule.ByMonth, err = parseIntList(val)
+			rule.ByMonth, err = parseIntListRange(val, 1, 12)
 		case "BYSETPOS":
-			rule.BySetPos, err = parseIntList(val)
+			rule.BySetPos, err = parseIntListNonZeroRange(val, 366) // ±1..366
 		case "WKST":
 			rule.WkSt = parseWeekday(val)
 		}
@@ -434,7 +434,7 @@ func parseAttendee(params []model.Param, value string) model.Attendee {
 			continue
 		}
 		v := param.Values[0]
-		switch strings.ToUpper(param.Name) {
+		switch param.Name { // имя параметра нормализовано в uppercase сканером
 		case "CN":
 			a.Name = v
 		case "ROLE":
@@ -790,6 +790,41 @@ func parseIntList(s string) ([]int, error) {
 		result = append(result, n)
 	}
 	return result, nil
+}
+
+// parseIntListRange парсит список целых чисел и проверяет, что каждое значение
+// входит в диапазон [min, max]. Используется для RRULE-полей с ограниченным диапазоном.
+func parseIntListRange(s string, min, max int) ([]int, error) {
+	vals, err := parseIntList(s)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range vals {
+		if v < min || v > max {
+			return nil, errors.Wrapf(ErrInvalidRRule, "value %d out of range [%d, %d]", v, min, max)
+		}
+	}
+	return vals, nil
+}
+
+// parseIntListNonZeroRange парсит список целых чисел и проверяет, что каждое значение
+// ненулевое и попадает в диапазон [-max, -1] ∪ [1, max]. Используется для RRULE-полей,
+// допускающих отрицательные смещения (BYMONTHDAY, BYYEARDAY, BYWEEKNO, BYSETPOS).
+func parseIntListNonZeroRange(s string, absMax int) ([]int, error) {
+	vals, err := parseIntList(s)
+	if err != nil {
+		return nil, err
+	}
+	for _, v := range vals {
+		abs := v
+		if abs < 0 {
+			abs = -abs
+		}
+		if abs == 0 || abs > absMax {
+			return nil, errors.Wrapf(ErrInvalidRRule, "value %d out of valid range (±1..%d)", v, absMax)
+		}
+	}
+	return vals, nil
 }
 
 // parsePeriod парсит значение PERIOD: "start/end" или "start/duration".

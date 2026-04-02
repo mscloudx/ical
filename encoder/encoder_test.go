@@ -600,3 +600,30 @@ func (s *EncoderSuite) TestEncode_NilWriter() {
 	// Assert
 	s.ErrorIs(err, encoder.ErrNilWriter)
 }
+
+// TestEncode_LineFoldingRFC5545Compliance проверяет, что каждая физическая строка
+// закодированного вывода не превышает 75 октетов (RFC 5545 §3.1).
+// Включает continuation-строки, которые должны иметь ≤ 74 байта контента + 1 пробел.
+func (s *EncoderSuite) TestEncode_LineFoldingRFC5545Compliance() {
+	// Arrange: строка длиннее 75 байт, чтобы гарантированно получить continuation-строки.
+	longDesc := strings.Repeat("X", 300)
+	cal := &model.Calendar{
+		ProdID: "-//Test//EN",
+		Events: []model.Event{
+			{
+				UID:         "fold-compliance@test",
+				Description: longDesc,
+			},
+		},
+	}
+
+	// Act
+	encoded, err := encoder.MarshalString(cal)
+	s.Require().NoError(err)
+
+	// Assert: каждая физическая строка (без CRLF) ≤ 75 октетов.
+	for _, line := range strings.Split(encoded, "\r\n") {
+		s.LessOrEqual(len([]byte(line)), 75,
+			"physical line exceeds 75 octets (RFC 5545 §3.1): %q", line)
+	}
+}

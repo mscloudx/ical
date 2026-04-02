@@ -77,7 +77,7 @@ func buildParticipant(raw *rawComponent) (model.Participant, error) {
 }
 
 func setParticipantProp(part *model.Participant, p model.Property) error {
-	switch strings.ToUpper(p.Name) {
+	switch p.Name { // имя свойства нормализовано в uppercase сканером
 	case propUID:
 		part.UID = p.Value
 	case propKind, propParticipantType:
@@ -161,7 +161,7 @@ func buildLocationComponent(raw *rawComponent) (model.LocationComponent, error) 
 }
 
 func setLocationComponentProp(loc *model.LocationComponent, p model.Property) error {
-	switch strings.ToUpper(p.Name) {
+	switch p.Name { // имя свойства нормализовано в uppercase сканером
 	case propUID:
 		loc.UID = p.Value
 	case propName:
@@ -239,7 +239,7 @@ func buildResourceComponent(raw *rawComponent) (model.ResourceComponent, error) 
 }
 
 func setResourceComponentProp(res *model.ResourceComponent, p model.Property) error {
-	switch strings.ToUpper(p.Name) {
+	switch p.Name { // имя свойства нормализовано в uppercase сканером
 	case propUID:
 		res.UID = p.Value
 	case propName:
